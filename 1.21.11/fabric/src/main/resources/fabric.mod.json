@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "chattranslation",
+  "version": "${version}",
+  "name": "Chat Translation",
+  "description": "Real-time client-side chat translation mod. Automatically translates chat messages using Google Translate or Bing Translator. Configurable via Mod Menu.",
+  "authors": ["ChatTranslation Team"],
+  "contact": {
+    "homepage": "https://github.com/chattranslation",
+    "sources": "https://github.com/chattranslation"
+  },
+  "license": "MIT",
+  "icon": "assets/chattranslation/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.chattranslation.ChatTranslationMod"
+    ],
+    "modmenu": [
+      "com.chattranslation.config.ModMenuIntegration"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": ">=0.104.0",
+    "cloth-config": ">=16.0.141"
+  },
+  "recommends": {
+    "modmenu": ">=12.0.0"
+  }
+}

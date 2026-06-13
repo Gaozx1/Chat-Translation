@@ -1,0 +1,41 @@
+# 忽略所有构建产物和缓存
+.gradle/
+.gradle-local/
+gradle-8.9/
+gradle/
+build/
+*/build/
+*.jar
+*.class
+*.log
+
+# 忽略 Loom 和 NeoForge 缓存
+loom-cache/
+*/loom-cache/
+neoformruntime/
+*/neoformruntime/
+
+# 忽略 Gradle 缓存目录
+*/.gradle/
+*/.gradle-8.9/
+
+# 忽略 IDE 文件
+.idea/
+*.iml
+.vscode/
+.settings/
+
+# 忽略临时文件
+*.lock
+*.bin
+*.cache
+*.tmp
+
+# 忽略系统文件
+Thumbs.db
+.DS_Store
+
+# 保留源代码目录
+!src/
+gradle-8.9-bin.zip
+*.zip

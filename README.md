@@ -21,13 +21,13 @@
 
 ## 📦 支持的版本
 
-| Minecraft 版本 | Fabric | NeoForge | Java 要求 |
+| Minecraft 版本 | Fabric | NeoForge |forge| Java 要求 |
 |---|---|---|---|
-| 1.21.1 | ✅ | ✅ | Java 21+ |
-| 1.21.4 | ✅ | ✅ | Java 21+ |
-| 1.21.8 | ✅ | ✅ | Java 21+ |
-| 1.21.11 | ✅ | ✅ | Java 21+ |
-| 26.1.2 | ✅ | ✅ | Java 25+ |
+| 1.21.1 | ✅ | ❌|❌ | Java 21+ |
+| 1.21.4 | ✅ | ❌ |❌| Java 21+ |
+| 1.21.8 | ✅ | ❌|❌| Java 21+ |
+| 1.21.11 | ✅ | ❌ |❌| Java 21+ |
+| 26.1.2 | ✅ | ❌|❌ | Java 25+ |
 
 ## 🚀 安装
 
@@ -47,7 +47,6 @@
 
 进入游戏后：
 - **Fabric**：在 Mod Menu 里点击 Chat Translation 的配置按钮
-- **NeoForge**：在模组列表里点击 Chat Translation 的配置入口
 
 可配置项：
 - **翻译服务 Provider**：Google Translate / Google Proxy / 彩云小译 / DeepL / 有道 / 讯飞听见
@@ -60,15 +59,12 @@
 
 | Provider | 是否免 Key | 备注 |
 |---|---|---|
-| Google Translate (官方) | ❌ | 需 Google API Key |
-| Google Proxy | ✅ | 走免密钥代理接口，可能触发 403 |
+| Google  | ✅ | 走免密钥代理接口，可能触发 403 |
 | 彩云小译 | ✅ | 默认使用公共测试 Token |
-| DeepL | ❌ | 需 DeepL API Key |
-| 有道翻译 | ❌ | 需有道智云 API Key |
-| 讯飞听见翻译 | ❌ | 需讯飞 AIU API Key |
+|ai|❌|要token|
 
 推荐优先使用：
-1. **Google Proxy**（最快，免 key）
+1. **Google**（最快，免 key）
 2. **彩云小译**（稳定，免 key）
 
 如果遇到 403 或无法连接，可切换到其它 provider，或在配置里打开 **SSL 不安全模式**。

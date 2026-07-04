@@ -3,11 +3,12 @@
   "id": "chattranslation",
   "version": "${version}",
   "name": "Chat Translation",
-  "description": "Real-time client-side chat translation mod. Automatically translates chat messages using Google Translate or Bing Translator. Configurable via Mod Menu.",
-  "authors": ["ChatTranslation Team"],
+  "description": "Real-time client-side chat translation mod with free translation providers and optional AI-compatible endpoints.",
+  "authors": ["Gaozx1"],
   "contact": {
-    "homepage": "https://github.com/chattranslation",
-    "sources": "https://github.com/chattranslation"
+    "homepage": "https://github.com/Gaozx1/Chat-Translation",
+    "sources": "https://github.com/Gaozx1/Chat-Translation",
+    "issues": "https://github.com/Gaozx1/Chat-Translation/issues"
   },
   "license": "MIT",
   "icon": "assets/chattranslation/icon.png",

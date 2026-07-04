@@ -14,9 +14,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 
-/**
- * Google 翻译服务实现 (使用免费翻译API)
- */
 public class GoogleTranslationProvider implements TranslationProvider {
 
     private static final String TRANSLATE_URL =
@@ -32,13 +29,13 @@ public class GoogleTranslationProvider implements TranslationProvider {
     public CompletableFuture<String> translate(String text, String sourceLang, String targetLang) {
         return CompletableFuture.supplyAsync(() -> {
             try {
+                String source = normalize(sourceLang);
+                String target = normalize(targetLang);
                 String encodedText = URLEncoder.encode(text, StandardCharsets.UTF_8);
                 String url = TRANSLATE_URL +
-                        "&sl=" + sourceLang +
-                        "&tl=" + targetLang +
+                        "&sl=" + source +
+                        "&tl=" + target +
                         "&q=" + encodedText;
-                ChatTranslationMod.LOGGER.info("[ChatTranslation][debug:http-start] source={}, target={}, length={}, url={}",
-                        sourceLang, targetLang, text.length(), url);
 
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(url))
@@ -47,34 +44,25 @@ public class GoogleTranslationProvider implements TranslationProvider {
                         .header("User-Agent", "Mozilla/5.0")
                         .build();
 
-                HttpResponse<String> response = httpClient.send(request,
-                        HttpResponse.BodyHandlers.ofString());
-                ChatTranslationMod.LOGGER.info("[ChatTranslation][debug:http-response] status={}, bodySnippet={}",
-                        response.statusCode(), response.body().substring(0, Math.min(response.body().length(), 200)));
-
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() == 200) {
                     return parseTranslationResponse(response.body());
-                } else {
-                    return "[Translation Error: HTTP " + response.statusCode() + "]";
                 }
+                return "[Google Free Error: HTTP " + response.statusCode() + "]";
             } catch (Exception e) {
-                ChatTranslationMod.LOGGER.error("[ChatTranslation][debug:http-error] message={}", e.getMessage(), e);
-                return "[Translation Error: " + e.getMessage() + "]";
+                return "[Google Free Error: " + e.getMessage() + "]";
             }
         });
     }
 
     @Override
     public CompletableFuture<String> detectLanguage(String text) {
-        // Google Translate API 的自动检测功能在翻译时设置 sl=auto 即可,
-        // 这里通过简短翻译来检测语言
-        return translate(text.substring(0, Math.min(text.length(), 50)), "auto", "en")
-                .thenApply(result -> "auto");
+        return CompletableFuture.completedFuture("auto");
     }
 
     @Override
     public String getName() {
-        return "Google Translate";
+        return "Google Translate Free";
     }
 
     private String parseTranslationResponse(String jsonResponse) {
@@ -82,24 +70,37 @@ public class GoogleTranslationProvider implements TranslationProvider {
             JsonElement root = JsonParser.parseString(jsonResponse);
             if (root.isJsonArray()) {
                 JsonArray rootArray = root.getAsJsonArray();
-                if (!rootArray.isEmpty()) {
+                if (!rootArray.isEmpty() && rootArray.get(0).isJsonArray()) {
                     JsonArray firstBlock = rootArray.get(0).getAsJsonArray();
                     StringBuilder result = new StringBuilder();
                     for (JsonElement segment : firstBlock) {
                         if (segment.isJsonArray()) {
-                            JsonArray segArray = segment.getAsJsonArray();
-                            if (!segArray.isEmpty()) {
-                                result.append(segArray.get(0).getAsString());
+                            JsonArray segmentArray = segment.getAsJsonArray();
+                            if (!segmentArray.isEmpty() && !segmentArray.get(0).isJsonNull()) {
+                                result.append(segmentArray.get(0).getAsString());
                             }
                         }
                     }
-                    ChatTranslationMod.LOGGER.info("[ChatTranslation][debug:parse-success] translated='{}'", result.toString());
                     return result.toString();
                 }
             }
-        } catch (Exception e) {
-            ChatTranslationMod.LOGGER.error("[ChatTranslation][debug:parse-error] message={}", e.getMessage(), e);
+        } catch (Exception ignored) {
         }
-        return "[Parse Error]";
+        return "[Google Free Parse Error]";
+    }
+
+    private String normalize(String language) {
+        if (language == null || language.isBlank()) {
+            return "auto";
+        }
+        return switch (language.toLowerCase()) {
+            case "zh-cn", "zh_cn" -> "zh-CN";
+            case "zh-tw", "zh_tw" -> "zh-TW";
+            case "ja-jp", "ja_jp" -> "ja";
+            case "ko-kr", "ko_kr" -> "ko";
+            case "fr-fr", "fr_fr" -> "fr";
+            case "de-de", "de_de" -> "de";
+            default -> language;
+        };
     }
 }

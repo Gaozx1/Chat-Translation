@@ -6,6 +6,7 @@ import com.terraformersmc.modmenu.api.ModMenuApi;
 import me.shedaniel.clothconfig2.api.ConfigBuilder;
 import me.shedaniel.clothconfig2.api.ConfigCategory;
 import me.shedaniel.clothconfig2.api.ConfigEntryBuilder;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
 
@@ -24,67 +25,90 @@ public class ModMenuIntegration implements ModMenuApi {
 
         ConfigBuilder builder = ConfigBuilder.create()
                 .setParentScreen(parent)
-                .setTitle(Text.literal("Chat Translation Config"))
+                .setTitle(Text.translatable("chattranslation.config.title"))
                 .setSavingRunnable(() -> saveConfig(editing));
 
         ConfigEntryBuilder entries = builder.entryBuilder();
-        ConfigCategory general = builder.getOrCreateCategory(Text.literal("General"));
+        ConfigCategory general = builder.getOrCreateCategory(Text.translatable("chattranslation.config.category.general"));
 
-        general.addEntry(entries.startStringDropdownMenu(Text.literal("Translation Service"), editing.getTranslationService(), Text::literal)
-                .setSelections(Arrays.asList("google_proxy", "google", "caiyun", "bing"))
-                .setDefaultValue("google_proxy")
+        general.addEntry(entries.startStringDropdownMenu(Text.translatable("chattranslation.config.translation_service"), editing.getTranslationService(), Text::literal)
+                .setSelections(Arrays.asList("google_free", "bing_free", "mymemory", "lingva", "libretranslate", "ai"))
+                .setDefaultValue("google_free")
                 .setSaveConsumer(editing::setTranslationService)
                 .build());
 
-        general.addEntry(entries.startStringDropdownMenu(Text.literal("Target Language"), editing.getTargetLanguage(), Text::literal)
+        general.addEntry(entries.startStringDropdownMenu(Text.translatable("chattranslation.config.target_language"), editing.getTargetLanguage(), Text::literal)
                 .setSelections(Arrays.asList(editing.getSupportedLanguages()))
                 .setDefaultValue("auto")
                 .setSaveConsumer(editing::setTargetLanguage)
                 .build());
 
-        general.addEntry(entries.startBooleanToggle(Text.literal("Translate All Messages"), editing.isTranslateAllMessages())
-                .setDefaultValue(true)
+        general.addEntry(entries.startBooleanToggle(Text.translatable("chattranslation.config.translate_all_messages"), editing.isTranslateAllMessages())
+                .setDefaultValue(false)
                 .setSaveConsumer(editing::setTranslateAllMessages)
                 .build());
 
-        general.addEntry(entries.startBooleanToggle(Text.literal("Show Original"), editing.isShowOriginal())
-                .setDefaultValue(true)
+        general.addEntry(entries.startBooleanToggle(Text.translatable("chattranslation.config.show_original"), editing.isShowOriginal())
+                .setDefaultValue(false)
                 .setSaveConsumer(editing::setShowOriginal)
                 .build());
 
-        general.addEntry(entries.startStrField(Text.literal("Translation Format"), editing.getTranslationFormat())
-                .setDefaultValue("&r[&6译&r] {message}")
+        general.addEntry(entries.startStrField(Text.translatable("chattranslation.config.translation_format"), editing.getTranslationFormat())
+                .setDefaultValue("{message}")
                 .setSaveConsumer(editing::setTranslationFormat)
                 .build());
 
-        ConfigCategory advanced = builder.getOrCreateCategory(Text.literal("Advanced"));
-
-        advanced.addEntry(entries.startStrField(Text.literal("Google Proxy URL"), editing.getGoogleProxyUrl())
-                .setDefaultValue("https://translate-pa.googleapis.com/v1/translateHtml")
-                .setSaveConsumer(editing::setGoogleProxyUrl)
+        general.addEntry(entries.startBooleanToggle(Text.translatable("chattranslation.config.single_line_display"), editing.isSingleLineDisplay())
+                .setDefaultValue(true)
+                .setSaveConsumer(editing::setSingleLineDisplay)
                 .build());
 
-        advanced.addEntry(entries.startBooleanToggle(Text.literal("Insecure SSL Compatibility"), editing.isInsecureSsl())
+        ConfigCategory freeServices = builder.getOrCreateCategory(Text.translatable("chattranslation.config.category.free_services"));
+
+        freeServices.addEntry(entries.startStrField(Text.translatable("chattranslation.config.lingva_api_url"), editing.getLingvaApiUrl())
+                .setDefaultValue("https://lingva.ml/api/v1")
+                .setSaveConsumer(editing::setLingvaApiUrl)
+                .build());
+
+        freeServices.addEntry(entries.startStrField(Text.translatable("chattranslation.config.libretranslate_api_url"), editing.getLibreTranslateApiUrl())
+                .setDefaultValue("")
+                .setSaveConsumer(editing::setLibreTranslateApiUrl)
+                .build());
+
+        freeServices.addEntry(entries.startStrField(Text.translatable("chattranslation.config.libretranslate_api_key"), editing.getLibreTranslateApiKey())
+                .setDefaultValue("")
+                .setSaveConsumer(editing::setLibreTranslateApiKey)
+                .build());
+
+        ConfigCategory advanced = builder.getOrCreateCategory(Text.translatable("chattranslation.config.category.advanced"));
+
+        advanced.addEntry(entries.startBooleanToggle(Text.translatable("chattranslation.config.insecure_ssl"), editing.isInsecureSsl())
                 .setDefaultValue(true)
                 .setSaveConsumer(editing::setInsecureSsl)
                 .build());
 
-        advanced.addEntry(entries.startStrField(Text.literal("Caiyun Token"), editing.getCaiyunToken())
-                .setDefaultValue("3975l6lr5pcbvidl6jl2")
-                .setSaveConsumer(editing::setCaiyunToken)
+        advanced.addEntry(entries.startStringDropdownMenu(Text.translatable("chattranslation.config.ai_format"), editing.getAiFormat(), Text::literal)
+                .setSelections(Arrays.asList("openai_compatible", "gemini", "anthropic"))
+                .setDefaultValue("openai_compatible")
+                .setSaveConsumer(editing::setAiFormat)
                 .build());
 
-        advanced.addEntry(entries.startStrField(Text.literal("Bing API Key"), editing.getBingApiKey())
+        advanced.addEntry(entries.startStrField(Text.translatable("chattranslation.config.ai_api_url"), editing.getAiApiUrl())
                 .setDefaultValue("")
-                .setSaveConsumer(editing::setBingApiKey)
+                .setSaveConsumer(editing::setAiApiUrl)
                 .build());
 
-        advanced.addEntry(entries.startStrField(Text.literal("Bing Region"), editing.getBingRegion())
-                .setDefaultValue("global")
-                .setSaveConsumer(editing::setBingRegion)
+        advanced.addEntry(entries.startStrField(Text.translatable("chattranslation.config.ai_api_key"), editing.getAiApiKey())
+                .setDefaultValue("")
+                .setSaveConsumer(editing::setAiApiKey)
                 .build());
 
-        advanced.addEntry(entries.startTextDescription(Text.literal("保存后会自动重载当前翻译服务。测试连接结果请查看游戏日志中的 [ChatTranslation][test]。"))
+        advanced.addEntry(entries.startStrField(Text.translatable("chattranslation.config.ai_model_id"), editing.getAiModelId())
+                .setDefaultValue("")
+                .setSaveConsumer(editing::setAiModelId)
+                .build());
+
+        advanced.addEntry(entries.startTextDescription(Text.translatable("chattranslation.config.notice"))
                 .build());
 
         return builder.build();
@@ -97,6 +121,6 @@ public class ModMenuIntegration implements ModMenuApi {
     }
 
     private Path configPath() {
-        return net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve(ChatTranslationMod.MOD_ID + ".json");
+        return FabricLoader.getInstance().getConfigDir().resolve(ChatTranslationMod.MOD_ID + ".json");
     }
 }

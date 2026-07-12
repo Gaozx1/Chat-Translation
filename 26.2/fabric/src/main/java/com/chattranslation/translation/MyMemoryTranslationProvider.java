@@ -63,9 +63,20 @@ public class MyMemoryTranslationProvider implements TranslationProvider {
     private String parseResponse(String body) {
         try {
             JsonObject root = JsonParser.parseString(body).getAsJsonObject();
+            if (root.has("responseStatus") && !"200".equals(root.get("responseStatus").getAsString())) {
+                String details = root.has("responseDetails") && !root.get("responseDetails").isJsonNull()
+                        ? root.get("responseDetails").getAsString()
+                        : root.get("responseStatus").getAsString();
+                return "[MyMemory Error: " + details + "]";
+            }
             JsonObject responseData = root.getAsJsonObject("responseData");
-            if (responseData != null && responseData.has("translatedText")) {
-                return responseData.get("translatedText").getAsString();
+            if (responseData != null
+                    && responseData.has("translatedText")
+                    && !responseData.get("translatedText").isJsonNull()) {
+                String translatedText = responseData.get("translatedText").getAsString();
+                if (!translatedText.isBlank()) {
+                    return translatedText;
+                }
             }
         } catch (Exception e) {
         }

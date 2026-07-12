@@ -13,7 +13,7 @@ import java.util.Set;
 
 public class ModConfig {
 
-    private static final int CURRENT_CONFIG_VERSION = 2;
+    private static final int CURRENT_CONFIG_VERSION = 3;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Set<String> FREE_SERVICES = Set.of(
             "google_free",
@@ -44,6 +44,12 @@ public class ModConfig {
 
     @SerializedName("translate_all_messages")
     private boolean translateAllMessages = false;
+
+    @SerializedName("translate_outgoing_messages")
+    private boolean translateOutgoingMessages = false;
+
+    @SerializedName("outgoing_target_language")
+    private String outgoingTargetLanguage = "en";
 
     @SerializedName("supported_languages")
     private String[] supportedLanguages = {
@@ -121,6 +127,22 @@ public class ModConfig {
 
     public void setTranslateAllMessages(boolean translateAllMessages) {
         this.translateAllMessages = translateAllMessages;
+    }
+
+    public boolean isTranslateOutgoingMessages() {
+        return translateOutgoingMessages;
+    }
+
+    public void setTranslateOutgoingMessages(boolean translateOutgoingMessages) {
+        this.translateOutgoingMessages = translateOutgoingMessages;
+    }
+
+    public String getOutgoingTargetLanguage() {
+        return outgoingTargetLanguage;
+    }
+
+    public void setOutgoingTargetLanguage(String outgoingTargetLanguage) {
+        this.outgoingTargetLanguage = outgoingTargetLanguage;
     }
 
     public String[] getSupportedLanguages() {
@@ -232,6 +254,9 @@ public class ModConfig {
         if (targetLanguage == null || targetLanguage.isBlank()) {
             targetLanguage = "auto";
         }
+        if (outgoingTargetLanguage == null || outgoingTargetLanguage.isBlank() || "auto".equalsIgnoreCase(outgoingTargetLanguage)) {
+            outgoingTargetLanguage = "en";
+        }
         if (configVersion <= 0 || configVersion > CURRENT_CONFIG_VERSION) {
             configVersion = CURRENT_CONFIG_VERSION;
         }
@@ -262,10 +287,14 @@ public class ModConfig {
         if (configVersion >= CURRENT_CONFIG_VERSION) {
             return false;
         }
-        showOriginal = false;
-        translateAllMessages = false;
-        translationFormat = "{message}";
-        singleLineDisplay = true;
+        if (configVersion < 2) {
+            showOriginal = false;
+            translateAllMessages = false;
+            translationFormat = "{message}";
+            singleLineDisplay = true;
+        }
+        translateOutgoingMessages = false;
+        outgoingTargetLanguage = "en";
         configVersion = CURRENT_CONFIG_VERSION;
         return true;
     }

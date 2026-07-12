@@ -43,6 +43,17 @@ public class ModMenuIntegration implements ModMenuApi {
                 .setSaveConsumer(editing::setTargetLanguage)
                 .build());
 
+        general.addEntry(entries.startBooleanToggle(Component.translatable("chattranslation.config.translate_outgoing_messages"), editing.isTranslateOutgoingMessages())
+                .setDefaultValue(false)
+                .setSaveConsumer(editing::setTranslateOutgoingMessages)
+                .build());
+
+        general.addEntry(entries.startStringDropdownMenu(Component.translatable("chattranslation.config.outgoing_target_language"), editing.getOutgoingTargetLanguage(), Component::literal)
+                .setSelections(Arrays.stream(editing.getSupportedLanguages()).filter(language -> !"auto".equals(language)).toList())
+                .setDefaultValue("en")
+                .setSaveConsumer(editing::setOutgoingTargetLanguage)
+                .build());
+
         general.addEntry(entries.startBooleanToggle(Component.translatable("chattranslation.config.translate_all_messages"), editing.isTranslateAllMessages())
                 .setDefaultValue(false)
                 .setSaveConsumer(editing::setTranslateAllMessages)

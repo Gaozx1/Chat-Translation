@@ -12,6 +12,7 @@ import com.chattranslation.translation.MyMemoryTranslationProvider;
 import com.chattranslation.translation.TranslationProvider;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
+import net.fabricmc.fabric.api.client.message.v1.ClientSendMessageEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import com.mojang.authlib.GameProfile;
 import net.minecraft.client.Minecraft;
@@ -32,7 +33,9 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -57,6 +60,12 @@ public class ChatTranslationMod implements ClientModInitializer {
     private static ModConfig config;
     private static TranslationProvider translationProvider;
     private static final Set<String> translatingMessages = ConcurrentHashMap.newKeySet();
+    private static final int MAX_CHAT_MESSAGE_LENGTH = 256;
+    private static final Object OUTGOING_TRANSLATION_LOCK = new Object();
+    private static CompletableFuture<Void> outgoingTranslationQueue = CompletableFuture.completedFuture(null);
+    private static boolean bypassOutgoingTranslation;
+    private static final long OUTGOING_ECHO_TTL_MILLIS = 15_000L;
+    private static final ConcurrentLinkedDeque<RecentOutgoingMessage> recentOutgoingMessages = new ConcurrentLinkedDeque<>();
 
     @Override
     public void onInitializeClient() {
@@ -73,7 +82,8 @@ public class ChatTranslationMod implements ClientModInitializer {
         ClientReceiveMessageEvents.ALLOW_GAME.register(this::allowGameMessage);
         ClientReceiveMessageEvents.CHAT.register(this::onChatMessage);
         ClientReceiveMessageEvents.GAME.register(this::onGameMessage);
-        LOGGER.info("[ChatTranslation][debug:init] registered allow/chat/game receive events");
+        ClientSendMessageEvents.ALLOW_CHAT.register(this::allowOutgoingChatMessage);
+        LOGGER.info("[ChatTranslation][debug:init] registered receive and outgoing chat events");
 
         LOGGER.info("[ChatTranslation] Client mod initialized! Service: {}, Target: {}",
                 config.getTranslationService(), config.getTargetLanguage());
@@ -145,7 +155,15 @@ public class ChatTranslationMod implements ClientModInitializer {
     }
 
     private static boolean isProviderError(String result) {
-        return result == null || result.isBlank() || result.startsWith("[");
+        if (result == null || result.isBlank() || result.startsWith("[")) {
+            return true;
+        }
+        String normalized = result.trim().toLowerCase(java.util.Locale.ROOT);
+        return (normalized.contains("select two")
+                && normalized.contains("language")
+                && (normalized.contains("distinct") || normalized.contains("different")))
+                || normalized.contains("请选择两种不同的语言")
+                || normalized.contains("请选择两种不同语言");
     }
 
     private static TranslationProvider createAiProvider() {
@@ -179,6 +197,12 @@ public class ChatTranslationMod implements ClientModInitializer {
                                      @org.jetbrains.annotations.Nullable com.mojang.authlib.GameProfile sender,
                                      net.minecraft.network.chat.ChatType.Bound params,
                                      Instant receptionTimestamp) {
+        if (isLocalPlayer(sender)) {
+            consumeRecentOutgoingEcho(message);
+            LOGGER.info("[ChatTranslation][debug:allow-chat] skipping translation for local player message='{}'",
+                    message.getString());
+            return true;
+        }
         if (config.isShowOriginal()) {
             return true;
         }
@@ -188,7 +212,15 @@ public class ChatTranslationMod implements ClientModInitializer {
     }
 
     private boolean allowGameMessage(Component message, boolean overlay) {
-        if (overlay || config.isShowOriginal() || !shouldProcessGameMessage(message)) {
+        if (overlay || config.isShowOriginal()) {
+            return true;
+        }
+        if (consumeRecentOutgoingEcho(message)) {
+            LOGGER.info("[ChatTranslation][debug:allow-game] skipping translation for outgoing echo='{}'",
+                    message.getString());
+            return true;
+        }
+        if (!shouldProcessGameMessage(message)) {
             return true;
         }
         LOGGER.info("[ChatTranslation][debug:allow-game] overlay={}, message='{}'", overlay, message.getString());
@@ -199,7 +231,7 @@ public class ChatTranslationMod implements ClientModInitializer {
                                @org.jetbrains.annotations.Nullable com.mojang.authlib.GameProfile sender,
                                net.minecraft.network.chat.ChatType.Bound params,
                                Instant receptionTimestamp) {
-        if (!config.isShowOriginal()) {
+        if (!config.isShowOriginal() || isLocalPlayer(sender)) {
             return;
         }
         LOGGER.info("[ChatTranslation][debug:event-chat] message='{}', senderPresent={}, timestamp={}",
@@ -207,8 +239,21 @@ public class ChatTranslationMod implements ClientModInitializer {
         queueTranslation(message, sender, false);
     }
 
+    private boolean isLocalPlayer(GameProfile sender) {
+        if (sender == null) {
+            return false;
+        }
+        GameProfile localProfile = Minecraft.getInstance().getGameProfile();
+        return localProfile != null && java.util.Objects.equals(sender.id(), localProfile.id());
+    }
+
     private void onGameMessage(Component message, boolean overlay) {
         if (!config.isShowOriginal()) {
+            return;
+        }
+        if (!overlay && consumeRecentOutgoingEcho(message)) {
+            LOGGER.info("[ChatTranslation][debug:event-game] skipping translation for outgoing echo='{}'",
+                    message.getString());
             return;
         }
         LOGGER.info("[ChatTranslation][debug:event-game] overlay={}, translateAllMessages={}, message='{}'",
@@ -216,6 +261,134 @@ public class ChatTranslationMod implements ClientModInitializer {
         if (!overlay && shouldProcessGameMessage(message)) {
             queueTranslation(message, null, false);
         }
+    }
+
+    private boolean allowOutgoingChatMessage(String message) {
+        if (bypassOutgoingTranslation) {
+            return true;
+        }
+        if (!config.isTranslateOutgoingMessages()
+                || message == null
+                || message.isBlank()
+                || message.startsWith("/")
+                || message.length() > MAX_CHAT_MESSAGE_LENGTH
+                || translationProvider == null) {
+            return true;
+        }
+
+        ProtectedMessage protectedMessage = protectMessage(Component.literal(message), Minecraft.getInstance().getGameProfile());
+        if (!hasLettersOrDigits(stripPlaceholders(protectedMessage.textForTranslation(), protectedMessage.tokens()))) {
+            return true;
+        }
+
+        queueOutgoingTranslation(message, protectedMessage, config.getOutgoingTargetLanguage());
+        return false;
+    }
+
+    private void queueOutgoingTranslation(String originalMessage, ProtectedMessage protectedMessage, String targetLanguage) {
+        synchronized (OUTGOING_TRANSLATION_LOCK) {
+            outgoingTranslationQueue = outgoingTranslationQueue
+                    .handle((ignored, throwable) -> null)
+                    .thenCompose(ignored -> translateAndSendOutgoingMessage(originalMessage, protectedMessage, targetLanguage));
+        }
+    }
+
+    private CompletableFuture<Void> translateAndSendOutgoingMessage(String originalMessage,
+                                                                     ProtectedMessage protectedMessage,
+                                                                     String targetLanguage) {
+        LOGGER.info("[ChatTranslation][debug:outgoing-start] source=auto, target={}, provider={}, text='{}'",
+                targetLanguage, translationProvider.getName(), originalMessage);
+        CompletableFuture<String> translationFuture;
+        try {
+            translationFuture = translationProvider.translate(protectedMessage.textForTranslation(), "auto", targetLanguage);
+        } catch (RuntimeException e) {
+            LOGGER.warn("[ChatTranslation][debug:outgoing-error] provider failed before starting", e);
+            sendOutgoingChatMessage(originalMessage);
+            return CompletableFuture.completedFuture(null);
+        }
+        return translationFuture
+                .handle((translatedText, throwable) -> {
+                    String messageToSend = originalMessage;
+                    try {
+                        if (throwable != null) {
+                            LOGGER.warn("[ChatTranslation][debug:outgoing-error] original='{}', error={}",
+                                    originalMessage, throwable.getMessage());
+                        } else if (!isProviderError(translatedText)) {
+                            String restored = restoreProtectedMessage(protectedMessage, translatedText).getString();
+                            if (isValidOutgoingMessage(restored)) {
+                                messageToSend = restored;
+                            } else {
+                                LOGGER.warn("[ChatTranslation][debug:outgoing-fallback] invalid translated message, length={}",
+                                        restored.length());
+                            }
+                        } else {
+                            LOGGER.warn("[ChatTranslation][debug:outgoing-fallback] provider returned='{}'", translatedText);
+                        }
+                    } catch (RuntimeException e) {
+                        LOGGER.warn("[ChatTranslation][debug:outgoing-fallback] failed to restore translated message", e);
+                    }
+                    sendOutgoingChatMessage(messageToSend);
+                    return null;
+                });
+    }
+
+    private boolean isValidOutgoingMessage(String message) {
+        return message != null
+                && !message.isBlank()
+                && message.length() <= MAX_CHAT_MESSAGE_LENGTH
+                && message.indexOf('\n') < 0
+                && message.indexOf('\r') < 0;
+    }
+
+    private void sendOutgoingChatMessage(String message) {
+        Minecraft client = Minecraft.getInstance();
+        client.execute(() -> {
+            ClientPacketListener connection = client.getConnection();
+            if (connection == null) {
+                LOGGER.warn("[ChatTranslation][debug:outgoing-drop] connection is no longer available");
+                return;
+            }
+            bypassOutgoingTranslation = true;
+            try {
+                connection.sendChat(message);
+                rememberOutgoingMessage(message);
+                LOGGER.info("[ChatTranslation][debug:outgoing-send] text='{}'", message);
+            } finally {
+                bypassOutgoingTranslation = false;
+            }
+        });
+    }
+
+    private void rememberOutgoingMessage(String message) {
+        long now = System.currentTimeMillis();
+        recentOutgoingMessages.removeIf(entry -> now - entry.sentAtMillis() > OUTGOING_ECHO_TTL_MILLIS);
+        while (recentOutgoingMessages.size() >= 32) {
+            recentOutgoingMessages.pollFirst();
+        }
+        recentOutgoingMessages.addLast(new RecentOutgoingMessage(message, now));
+    }
+
+    private boolean consumeRecentOutgoingEcho(Component component) {
+        GameProfile localProfile = Minecraft.getInstance().getGameProfile();
+        if (localProfile == null || localProfile.name() == null || localProfile.name().isBlank()) {
+            return false;
+        }
+
+        String displayedText = stripMinecraftFormatting(component.getString());
+        long now = System.currentTimeMillis();
+        for (RecentOutgoingMessage entry : recentOutgoingMessages) {
+            if (now - entry.sentAtMillis() > OUTGOING_ECHO_TTL_MILLIS) {
+                recentOutgoingMessages.remove(entry);
+                continue;
+            }
+            int messageStart = displayedText.lastIndexOf(entry.message());
+            int nameStart = displayedText.lastIndexOf(localProfile.name(), messageStart);
+            if (messageStart >= 0 && nameStart >= 0 && messageStart - nameStart <= 80) {
+                recentOutgoingMessages.remove(entry);
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean shouldProcessGameMessage(Component message) {
@@ -661,6 +834,9 @@ public class ChatTranslationMod implements ClientModInitializer {
     }
 
     private record PlaceholderHit(int start, int end, ProtectedToken token) {
+    }
+
+    private record RecentOutgoingMessage(String message, long sentAtMillis) {
     }
 
     private record ProtectedToken(int start, int end, String value, Style style, TokenKind kind, String placeholder) {

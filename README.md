@@ -1,265 +1,108 @@
-# Chat Translation Mod · 聊天翻译模组
+# Chat Translation · 聊天翻译
 
-自动翻译 Minecraft 聊天消息的客户端模组，支持免 API Key 场景下直接可用，并提供模组菜单配置界面。
+Minecraft 客户端聊天翻译模组。当前开发版本为 **Minecraft 26.2 / Fabric / 模组版本 1.0.4**。
 
-> 简体中文  /  English (see below)
+旧版目录用于维护对应 Minecraft 版本；本说明主要描述 `26.2/fabric`。
 
----
+## 功能
 
-## ✨ 特性
+- 自动翻译玩家聊天，可选择是否同时保留原文
+- 可选翻译系统消息
+- 自动跟随 Minecraft 当前语言，或手动指定目标语言
+- 保护用户名、Rank 标签、命令、链接、点击与悬浮文本
+- 翻译失败、超时、译文异常或占位符损坏时恢复原消息
+- 请求按接收顺序处理，避免聊天乱序和瞬间请求洪泛
+- 支持 Google Free、Bing Free、MyMemory、Lingva、LibreTranslate 和自定义 AI 接口
+- 支持 OpenAI Compatible、Gemini 与 Anthropic 请求格式
 
-- 🎯 **自动翻译聊天消息**：进入服务器后自动翻译所有聊天信息
-- 🔓 **免 Key 可用**：默认使用无需 API Key 的翻译服务（Google Proxy、彩云小译）
-- 🎮 **模组菜单支持**：
-  - Fabric：Mod Menu + Cloth Config GUI
-  - NeoForge：Catalogue 菜单集成
-- 🌐 **多种翻译源**：Google Translate、Google Proxy、彩云小译、DeepL、有道翻译、讯飞听见翻译
-- 📡 **连接测试**：可以在配置里直接测试所选翻译源是否可用
-- 🔁 **智能回退**：翻译失败（如 HTTP 403）自动显示原文
-- 🛡️ **SSL 兼容模式**：可选关闭 SSL 校验以应对证书链问题
-- 🧹 **消息清洗**：自动剥离 Hypixel 彩色码、Rank 等装饰信息
+## 支持版本
 
-## 📦 支持的版本
+| Minecraft | 加载器 | Java | 状态 |
+|---|---|---:|---|
+| 1.21.1 | Fabric | 21+ | 历史版本 |
+| 1.21.4 | Fabric | 21+ | 历史版本 |
+| 1.21.8 | Fabric | 21+ | 历史版本 |
+| 1.21.11 | Fabric | 21+ | 历史版本 |
+| 26.1.2 | Fabric | 25+ | 历史版本 |
+| 26.2 | Fabric | 25+ | 当前版本 |
 
-| Minecraft 版本 | Fabric | NeoForge |forge| Java 要求 |
-|---|---|---|---|
-| 1.21.1 | ✅ | ❌|❌ | Java 21+ |
-| 1.21.4 | ✅ | ❌ |❌| Java 21+ |
-| 1.21.8 | ✅ | ❌|❌| Java 21+ |
-| 1.21.11 | ✅ | ❌ |❌| Java 21+ |
-| 26.1.2 | ✅ | ❌|❌ | Java 25+ |
+当前工作树不包含可发布的 NeoForge 版本。
 
-## 🚀 安装
+## 安装
 
-### Fabric
-1. 安装 [Fabric Loader](https://fabricmc.net/use/) 和 [Fabric API](https://modrinth.com/mod/fabric-api)
-2. 下载并安装 [Mod Menu](https://modrinth.com/mod/modmenu)（用于配置界面）
-3. 将本模组 jar 文件放入 `.minecraft/mods/` 目录
-4. 启动游戏
+26.2 版本需要：
 
-### NeoForge
-1. 安装 [NeoForge Loader](https://neoforged.net/)
-2. 将本模组 jar 文件放入 `.minecraft/mods/` 目录
-3. 在模组列表中找到 Chat Translation，点击配置
-4. 启动游戏
+1. Fabric Loader 0.19.3 或更高版本
+2. Fabric API 0.154.2+26.2 或更高版本
+3. Cloth Config 26.2.155 或更高版本
+4. Mod Menu 20.0.1 或更高版本（推荐，用于图形配置界面）
+5. Java 25 或更高版本
 
-## ⚙️ 配置
+将生成的 JAR 放入 `.minecraft/mods/`。
 
-进入游戏后：
-- **Fabric**：在 Mod Menu 里点击 Chat Translation 的配置按钮
+## 翻译服务
 
-可配置项：
-- **翻译服务 Provider**：Google Translate / Google Proxy / 彩云小译 / DeepL / 有道 / 讯飞听见
-- **目标语言 Target Language**：例如 `zh-CN`、`en`
-- **源语言自动检测**：默认开启
-- **SSL 不安全模式**：如遇证书链问题可打开
-- **测试连接**：在配置界面直接测试当前 provider 是否可访问
-
-## 🔑 翻译源说明
-
-| Provider | 是否免 Key | 备注 |
+| 服务 | API Key | 说明 |
 |---|---|---|
-| Google  | ✅ | 走免密钥代理接口，可能触发 403 |
-| 彩云小译 | ✅ | 默认使用公共测试 Token |
-|ai|❌|要token|
+| Google Free | 不需要 | 默认服务，公共非正式接口可能被限流 |
+| Bing Free | 不需要 | 第三方公共接口，稳定性取决于服务端 |
+| MyMemory | 不需要 | 使用服务端自动语言识别，存在公共额度限制 |
+| Lingva | 不需要 | 可配置自建 Lingva 地址 |
+| LibreTranslate | 可选 | 需要填写实例地址，部分实例要求 Key |
+| AI | 通常需要 | 支持 OpenAI Compatible、Gemini、Anthropic |
 
-推荐优先使用：
-1. **Google**（最快，免 key）
-2. **彩云小译**（稳定，免 key）
+所选服务会收到需要翻译的聊天文本。Google Free 或 Bing Free 失败时会回退到 MyMemory；AI、自建 Lingva 与 LibreTranslate 不会被转发到其他服务。所有服务都失败时会显示原消息。
 
-如果遇到 403 或无法连接，可切换到其它 provider，或在配置里打开 **SSL 不安全模式**。
+## 安全说明
 
-## 🛠️ 常见问题
+- TLS 证书校验默认开启。
+- “不安全 SSL 兼容模式”会信任任意服务器证书，只应在排查证书问题时临时开启。
+- API Key 保存在本地 `config/chattranslation.json`，不要分享该文件。
+- 正常运行不会以 INFO 级别记录完整聊天原文和译文。
 
-### 模组加载时报 missing `cloth-config` / `modmenu`
-Fabric 版本中这些是可选依赖；模组会自动降级运行，但没有图形配置界面。安装 Mod Menu + Cloth Config 即可获得完整 GUI。
+## 配置
 
-### 日志中出现 `SSLHandshakeException: PKIX path building failed`
-打开配置里的 **SSL 不安全模式**（跳过证书校验）再试。
+安装 Mod Menu 后，在模组列表中打开 Chat Translation 配置页面。保存后会立即重新加载所选翻译服务，不会同步执行网络测试或阻塞界面。
 
-### 日志中出现 `Google Proxy Error: HTTP 403`
-这是 Google 代理接口触发了风控；模组会自动回退显示原文。建议切换到 **彩云小译** 或切换到带 API Key 的官方 Provider。
+主要选项：
 
-### 切换 provider 后没变化
-在配置界面点击 **重载 Provider** / 保存配置后，或直接 **重启游戏** 即可生效。
+- 翻译服务
+- 目标语言，`auto` 表示跟随 Minecraft 当前语言
+- 是否翻译所有系统消息
+- 是否显示原文
+- 单行显示与翻译格式
+- Lingva / LibreTranslate 地址
+- AI 接口格式、地址、Key 和模型 ID
+- 不安全 SSL 兼容模式
 
-### 在 Hypixel 上看不到聊天翻译
-请确认：
-1. 已经进入服务器（聊天事件只在联机世界里大量触发）
-2. 模组在 Fabric/NeoForge 加载日志中显示 `ChatTranslation`
-3. 日志里有 `[ChatTranslation] Provider reloaded:` 字样
-
-## 📁 项目结构
-
-```
-Chat Translation/
-├── 1.21.1/
-│   ├── fabric/
-│   └── neoforge/
-├── 1.21.4/
-│   ├── fabric/
-│   └── neoforge/
-├── 1.21.8/
-│   ├── fabric/
-│   └── neoforge/
-├── 1.21.11/
-│   ├── fabric/
-│   └── neoforge/
-└── 26.1.2/
-    ├── fabric/
-    └── neoforge/
-```
-
-主要源码路径（各版本目录内）：
-- Fabric: `src/main/java/com/chattranslation/`
-- NeoForge: `src/main/java/com/chattranslation/`
-
-## 🏗️ 构建
-
-进入具体版本目录，例如：
+## 构建
 
 ```powershell
-cd "d:\mod\Chat Translation\1.21.4\fabric"
+cd "D:\mod\Chat Translation\26.2\fabric"
 .\gradlew.bat build
 ```
 
-产物位置：
-- Fabric: `build/libs/chattranslation-<version>.jar`
-- NeoForge: `build/libs/chattranslation-<version>.jar`
+需要让 `JAVA_HOME` 或系统 Java 指向 Java 25。项目不再写死开发者本机的 Java 安装路径。
 
-Java 版本：
-- 1.21.x：Java 21+
-- 26.1.2：Java 25+
+产物：
+
+```text
+26.2/fabric/build/libs/chattranslation-fabric+26.2-1.0.4.jar
+```
+
+## 隐私与限制
+
+- 单条超过 500 个字符的消息不会发送到翻译服务。
+- 最多保留 64 条待处理翻译；队列已满时直接显示原消息。
+- 免费公共接口可能限流、变更或暂时不可用。
+- 客户端替换后的译文属于本地系统消息，不保留服务器签名状态。
 
 ---
 
-# Chat Translation Mod
+## English summary
 
-A client-side Minecraft mod that automatically translates chat messages. Works **without API keys** by default, and provides a **mod menu configuration UI**.
+Chat Translation is a client-side Fabric mod for translating Minecraft chat. The current release target is Minecraft 26.2, Fabric, Java 25, version 1.0.4. It supports free providers and custom AI endpoints, preserves protected chat components, processes translations in order, and restores the original message on failure. Google Free and Bing Free may fall back to MyMemory; private and custom endpoints are never forwarded to another provider.
 
-## ✨ Features
+## License
 
-- 🎯 Auto translates every incoming chat message
-- 🔓 Works **without API keys** by default (Google Proxy, Caiyun Translate)
-- 🎮 **Mod menu UI**:
-  - Fabric: Mod Menu + Cloth Config GUI
-  - NeoForge: Catalogue integration
-- 🌐 Multiple providers: Google Translate, Google Proxy, Caiyun, DeepL, Youdao, iFlyRec
-- 📡 Connection test built into the configuration UI
-- 🔁 Graceful fallback: original message shown on translation failure (e.g. HTTP 403)
-- 🛡️ Optional insecure SSL mode to bypass certificate chain issues
-- 🧹 Automatic cleanup of server decorations (Hypixel color codes, ranks)
-
-## 📦 Supported versions
-
-| Minecraft version | Fabric | NeoForge | Java requirement |
-|---|---|---|---|
-| 1.21.1 | ✅ | ✅ | Java 21+ |
-| 1.21.4 | ✅ | ✅ | Java 21+ |
-| 1.21.8 | ✅ | ✅ | Java 21+ |
-| 1.21.11 | ✅ | ✅ | Java 21+ |
-| 26.1.2 | ✅ | ✅ | Java 25+ |
-
-## 🚀 Installation
-
-### Fabric
-1. Install [Fabric Loader](https://fabricmc.net/use/) and [Fabric API](https://modrinth.com/mod/fabric-api)
-2. Install [Mod Menu](https://modrinth.com/mod/modmenu) for configuration UI
-3. Drop the mod jar into `.minecraft/mods/`
-4. Launch the game
-
-### NeoForge
-1. Install [NeoForge Loader](https://neoforged.net/)
-2. Drop the mod jar into `.minecraft/mods/`
-3. In the mod list, open Chat Translation's configuration
-4. Launch the game
-
-## ⚙️ Configuration
-
-- **Fabric**: In Mod Menu, click the config button next to Chat Translation
-- **NeoForge**: Open the configuration entry from the mod list
-
-Available options:
-- Provider: Google Translate / Google Proxy / Caiyun / DeepL / Youdao / iFlyRec
-- Target language, with automatic source-language detection enabled by default
-- Insecure SSL mode (for environments with broken certificate chains)
-- Built-in connection test for the selected provider
-
-## 🔑 Providers
-
-| Provider | Works without key | Notes |
-|---|---|---|
-| Google Translate (official) | ❌ | Requires a Google API key |
-| Google Proxy | ✅ | Free proxy endpoint; may return 403 under rate limits |
-| Caiyun | ✅ | Uses a public test token by default |
-| DeepL | ❌ | Requires a DeepL API key |
-| Youdao | ❌ | Requires a Youdao Zhiyun API key |
-| iFlyRec | ❌ | Requires an iFlyRec AIU API key |
-
-Recommended order:
-1. Google Proxy
-2. Caiyun
-
-If you get 403 or connection errors, switch provider or enable insecure SSL mode.
-
-## 🛠️ Troubleshooting
-
-### Mod loads but complains about missing `cloth-config` / `modmenu`
-On Fabric these are optional dependencies. The mod still runs, but without the GUI. Install Mod Menu + Cloth Config to restore full configuration.
-
-### `SSLHandshakeException: PKIX path building failed` in logs
-Enable insecure SSL mode in the configuration UI.
-
-### `Google Proxy Error: HTTP 403` in logs
-The proxy endpoint is being rate-limited. The mod falls back to showing the original message. Switch to Caiyun or to a key-bearing provider.
-
-### Nothing changes after switching provider
-Click Reload Provider in the UI, or restart the game.
-
-### No chat translation on Hypixel
-Make sure:
-- You are actually joined to a server
-- `ChatTranslation` appears in the mod load log
-- The log contains `[ChatTranslation] Provider reloaded:`
-
-## 📁 Project layout
-
-```
-Chat Translation/
-├── 1.21.1/
-│   ├── fabric/
-│   └── neoforge/
-├── 1.21.4/
-│   ├── fabric/
-│   └── neoforge/
-├── 1.21.8/
-│   ├── fabric/
-│   └── neoforge/
-├── 1.21.11/
-│   ├── fabric/
-│   └── neoforge/
-└── 26.1.2/
-    ├── fabric/
-    └── neoforge/
-```
-
-Main source paths inside each version:
-- Fabric: `src/main/java/com/chattranslation/`
-- NeoForge: `src/main/java/com/chattranslation/`
-
-## 🏗️ Build
-
-From any version folder:
-
-```powershell
-cd "d:\mod\Chat Translation\1.21.4\fabric"
-.\gradlew.bat build
-```
-
-Output jars:
-- Fabric: `build/libs/chattranslation-<version>.jar`
-- NeoForge: `build/libs/chattranslation-<version>.jar`
-
-Java versions:
-- 1.21.x: Java 21+
-- 26.1.2: Java 25+
+MIT. See [LICENSE](LICENSE).

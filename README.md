@@ -1,8 +1,8 @@
 # Chat Translation · 聊天翻译
 
-Minecraft 客户端聊天翻译模组。当前开发版本为 **Minecraft 26.2 / Fabric / 模组版本 1.0.3-fix1**。
+Minecraft 客户端聊天翻译模组。仓库同时维护 **Minecraft 1.21.1、1.21.4、1.21.8、1.21.11、26.1.2 和 26.2** 的 Fabric 版本，模组版本统一为 **1.0.3-fix1**。
 
-旧版目录用于维护对应 Minecraft 版本；本说明主要描述 `26.2/fabric`。
+每个 Minecraft 版本都有独立的 `fabric` 工程，请安装与你的游戏版本完全对应的 JAR。
 
 ## 功能
 
@@ -13,7 +13,7 @@ Minecraft 客户端聊天翻译模组。当前开发版本为 **Minecraft 26.2 /
 - 自动跟随 Minecraft 当前语言，或手动指定目标语言
 - 保护用户名、Rank 标签、命令、链接、点击与悬浮文本
 - 翻译失败、超时、译文异常或占位符损坏时恢复原消息
-- 请求按接收顺序处理，避免聊天乱序和瞬间请求洪泛
+- 发出消息按输入顺序翻译；26.2 还会按顺序处理接收翻译并限制待处理请求数量
 - 支持 Google Free、Bing Free、MyMemory、Lingva、LibreTranslate 和自定义 AI 接口
 - 支持 OpenAI Compatible、Gemini 与 Anthropic 请求格式
 
@@ -21,26 +21,29 @@ Minecraft 客户端聊天翻译模组。当前开发版本为 **Minecraft 26.2 /
 
 | Minecraft | 加载器 | Java | 状态 |
 |---|---|---:|---|
-| 1.21.1 | Fabric | 21+ | 历史版本 |
-| 1.21.4 | Fabric | 21+ | 历史版本 |
-| 1.21.8 | Fabric | 21+ | 历史版本 |
-| 1.21.11 | Fabric | 21+ | 历史版本 |
-| 26.1.2 | Fabric | 25+ | 历史版本 |
-| 26.2 | Fabric | 25+ | 当前版本 |
+| 1.21.1 | Fabric | 21+ | 支持 |
+| 1.21.4 | Fabric | 21+ | 支持 |
+| 1.21.8 | Fabric | 21+ | 支持 |
+| 1.21.11 | Fabric | 21+ | 支持 |
+| 26.1.2 | Fabric | 25+ | 支持 |
+| 26.2 | Fabric | 25+ | 支持 |
 
 当前工作树不包含可发布的 NeoForge 版本。
 
 ## 安装
 
-26.2 版本需要：
+选择与你的 Minecraft 版本对应的依赖：
 
-1. Fabric Loader 0.19.3 或更高版本
-2. Fabric API 0.154.2+26.2 或更高版本
-3. Cloth Config 26.2.155 或更高版本
-4. Mod Menu 20.0.1 或更高版本（推荐，用于图形配置界面）
-5. Java 25 或更高版本
+| Minecraft | Fabric Loader | Fabric API | Cloth Config | Mod Menu | Java |
+|---|---|---|---|---|---:|
+| 1.21.1 | 0.16.9 | 0.116.12+1.21.1 | 15.0.140 | 11.0.3 | 21+ |
+| 1.21.4 | 0.16.9 | 0.110.5+1.21.4 | 16.0.141 | 12.0.0 | 21+ |
+| 1.21.8 | 0.16.9 | 0.129.0+1.21.8 | 16.0.141 | 12.0.0 | 21+ |
+| 1.21.11 | 0.16.9 | 0.135.1+1.21.11 | 17.0.144 | 17.0.0-alpha.1 | 21+ |
+| 26.1.2 | 0.18.4 | 0.151.0+26.1.2 | 26.1.154 | 18.0.0-alpha.8 | 25+ |
+| 26.2 | 0.19.3 | 0.154.2+26.2 | 26.2.155 | 20.0.1 | 25+ |
 
-将生成的 JAR 放入 `.minecraft/mods/`。
+Fabric API 和 Cloth Config 为必需依赖；Mod Menu 推荐安装，用于打开图形配置界面。将对应版本的 Chat Translation JAR 和依赖放入 `.minecraft/mods/`。
 
 ## 翻译服务
 
@@ -81,22 +84,22 @@ Minecraft 客户端聊天翻译模组。当前开发版本为 **Minecraft 26.2 /
 ## 构建
 
 ```powershell
-cd "D:\mod\Chat Translation\26.2\fabric"
+cd "D:\mod\Chat Translation\<Minecraft版本>\fabric"
 .\gradlew.bat build
 ```
 
-需要让 `JAVA_HOME` 或系统 Java 指向 Java 25。项目不再写死开发者本机的 Java 安装路径。
+构建 1.21.x 需要 Java 21 或更高版本，构建 26.x 需要 Java 25 或更高版本。请让 `JAVA_HOME` 或系统 Java 指向对应版本。
 
-产物：
+产物路径格式：
 
 ```text
-26.2/fabric/build/libs/chattranslation-fabric+26.2-1.0.3-fix1.jar
+<Minecraft版本>/fabric/build/libs/chattranslation-fabric+<Minecraft版本>-1.0.3-fix1.jar
 ```
 
 ## 隐私与限制
 
 - 单条超过 500 个字符的消息不会发送到翻译服务。
-- 最多保留 64 条待处理翻译；队列已满时直接显示原消息。
+- 26.2 最多保留 64 条待处理的接收翻译；队列已满时直接显示原消息。
 - 免费公共接口可能限流、变更或暂时不可用。
 - 客户端替换后的译文属于本地系统消息，不保留服务器签名状态。
 
@@ -104,9 +107,9 @@ cd "D:\mod\Chat Translation\26.2\fabric"
 
 ## English
 
-Chat Translation is a client-side Minecraft chat translation mod. The current development target is **Minecraft 26.2 / Fabric / mod version 1.0.3-fix1**.
+Chat Translation is a client-side Minecraft chat translation mod. The repository maintains Fabric builds for **Minecraft 1.21.1, 1.21.4, 1.21.8, 1.21.11, 26.1.2, and 26.2**, all using mod version **1.0.3-fix1**.
 
-Older directories maintain their corresponding Minecraft versions. This document primarily describes `26.2/fabric`.
+Each Minecraft version has an independent `fabric` project. Install the JAR that exactly matches your game version.
 
 ### Features
 
@@ -117,7 +120,7 @@ Older directories maintain their corresponding Minecraft versions. This document
 - Follows the selected Minecraft language automatically or uses a manually selected target language.
 - Preserves usernames, rank tags, commands, links, click events, and hover text.
 - Restores or sends the original message when translation fails, times out, returns invalid text, or damages protected placeholders.
-- Processes incoming and outgoing translations in order to avoid message reordering and request bursts.
+- Processes outgoing messages in input order; 26.2 also orders incoming translations and limits pending requests.
 - Supports Google Free, Bing Free, MyMemory, Lingva, LibreTranslate, and custom AI endpoints.
 - Supports OpenAI Compatible, Gemini, and Anthropic request formats.
 
@@ -125,26 +128,29 @@ Older directories maintain their corresponding Minecraft versions. This document
 
 | Minecraft | Loader | Java | Status |
 |---|---|---:|---|
-| 1.21.1 | Fabric | 21+ | Legacy |
-| 1.21.4 | Fabric | 21+ | Legacy |
-| 1.21.8 | Fabric | 21+ | Legacy |
-| 1.21.11 | Fabric | 21+ | Legacy |
-| 26.1.2 | Fabric | 25+ | Legacy |
-| 26.2 | Fabric | 25+ | Current |
+| 1.21.1 | Fabric | 21+ | Supported |
+| 1.21.4 | Fabric | 21+ | Supported |
+| 1.21.8 | Fabric | 21+ | Supported |
+| 1.21.11 | Fabric | 21+ | Supported |
+| 26.1.2 | Fabric | 25+ | Supported |
+| 26.2 | Fabric | 25+ | Supported |
 
 The current worktree does not contain a publishable NeoForge build.
 
 ### Installation
 
-Minecraft 26.2 requires:
+Use the dependencies matching your Minecraft version:
 
-1. Fabric Loader 0.19.3 or newer
-2. Fabric API 0.154.2+26.2 or newer
-3. Cloth Config 26.2.155 or newer
-4. Mod Menu 20.0.1 or newer, recommended for the graphical configuration screen
-5. Java 25 or newer
+| Minecraft | Fabric Loader | Fabric API | Cloth Config | Mod Menu | Java |
+|---|---|---|---|---|---:|
+| 1.21.1 | 0.16.9 | 0.116.12+1.21.1 | 15.0.140 | 11.0.3 | 21+ |
+| 1.21.4 | 0.16.9 | 0.110.5+1.21.4 | 16.0.141 | 12.0.0 | 21+ |
+| 1.21.8 | 0.16.9 | 0.129.0+1.21.8 | 16.0.141 | 12.0.0 | 21+ |
+| 1.21.11 | 0.16.9 | 0.135.1+1.21.11 | 17.0.144 | 17.0.0-alpha.1 | 21+ |
+| 26.1.2 | 0.18.4 | 0.151.0+26.1.2 | 26.1.154 | 18.0.0-alpha.8 | 25+ |
+| 26.2 | 0.19.3 | 0.154.2+26.2 | 26.2.155 | 20.0.1 | 25+ |
 
-Place the generated JAR in `.minecraft/mods/`.
+Fabric API and Cloth Config are required. Mod Menu is recommended for access to the graphical configuration screen. Place the matching Chat Translation JAR and its dependencies in `.minecraft/mods/`.
 
 ### Translation Providers
 
@@ -185,22 +191,22 @@ Main options:
 ### Build
 
 ```powershell
-cd "D:\mod\Chat Translation\26.2\fabric"
+cd "D:\mod\Chat Translation\<Minecraft-version>\fabric"
 .\gradlew.bat build
 ```
 
-`JAVA_HOME` or the system Java must point to Java 25. The project does not hard-code a developer-specific Java installation path.
+Minecraft 1.21.x builds require Java 21 or newer. Minecraft 26.x builds require Java 25 or newer. Point `JAVA_HOME` or the system Java to the matching version.
 
-Output:
+Output path pattern:
 
 ```text
-26.2/fabric/build/libs/chattranslation-fabric+26.2-1.0.3-fix1.jar
+<Minecraft-version>/fabric/build/libs/chattranslation-fabric+<Minecraft-version>-1.0.3-fix1.jar
 ```
 
 ### Privacy And Limitations
 
 - Messages longer than 500 characters are not sent to a translation provider.
-- At most 64 incoming translations are queued; the original message is kept when the queue is full.
+- Minecraft 26.2 queues at most 64 incoming translations; the original message is kept when the queue is full.
 - Free public endpoints may be rate-limited, changed, or temporarily unavailable.
 - Client-side replacement translations are local system messages and do not preserve the server's message signature state.
 

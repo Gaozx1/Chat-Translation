@@ -10,11 +10,12 @@
   "chattranslation.config.outgoing_target_language": "보내는 메시지의 대상 언어",
   "chattranslation.config.outgoing_target_language.tooltip": "보내는 메시지를 번역할 대상 언어입니다.",
   "chattranslation.config.translation_service": "Translation Service",
-  "chattranslation.config.translation_service.tooltip": "Choose a free translation service, or use your own AI-compatible endpoint.",
+  "chattranslation.config.translation_service.tooltip": "ai_free is the built-in free DeepSeek endpoint and needs no setup. Choose ai to use your own AI-compatible endpoint.",
   "chattranslation.config.insecure_ssl": "Insecure SSL Compatibility",
   "chattranslation.config.ai_format": "AI Format",
   "chattranslation.config.ai_api_url": "AI API URL",
   "chattranslation.config.ai_api_key": "AI API Key",
+  "chattranslation.config.ai_api_key.tooltip": "Only needed for the ai service. The built-in ai_free service uses an embedded key, so this can stay empty.",
   "chattranslation.config.ai_model_id": "AI Model ID",
   "chattranslation.config.lingva_api_url": "Lingva API URL",
   "chattranslation.config.libretranslate_api_url": "LibreTranslate API URL",
@@ -26,5 +27,6 @@
   "chattranslation.config.single_line_display": "Single Line Display",
   "chattranslation.config.translate_all_messages": "Translate All Messages",
   "chattranslation.config.translate_all_messages.tooltip": "Translate all chat and system messages, not just player chat.",
-  "chattranslation.config.notice": "Saving will reload the current translation provider automatically. Check the game log for [ChatTranslation][test] results."
+  "chattranslation.config.notice": "Saving reloads the selected translation provider immediately. Insecure SSL should only be enabled temporarily for troubleshooting.",
+  "chattranslation.config.free_notice": "The built-in free endpoint uses deepseek-v4.1-flash through api.mcapple.top. Its key is embedded and encrypted in the mod; the public quota is shared, so expect slower replies and occasional failures."
 }

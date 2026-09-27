@@ -13,7 +13,7 @@ import java.util.Set;
 
 public class ModConfig {
 
-    private static final int CURRENT_CONFIG_VERSION = 3;
+    private static final int CURRENT_CONFIG_VERSION = 5;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Set<String> FREE_SERVICES = Set.of(
             "google_free",
@@ -21,7 +21,8 @@ public class ModConfig {
             "mymemory",
             "lingva",
             "libretranslate",
-            "ai"
+            "ai",
+            "ai_free"
     );
 
     @SerializedName("target_language")
@@ -31,7 +32,7 @@ public class ModConfig {
     private int configVersion = CURRENT_CONFIG_VERSION;
 
     @SerializedName("translation_service")
-    private String translationService = "google_free";
+    private String translationService = "ai_free";
 
     @SerializedName("show_original")
     private boolean showOriginal = false;
@@ -58,7 +59,7 @@ public class ModConfig {
     };
 
     @SerializedName("insecure_ssl")
-    private boolean insecureSsl = true;
+    private boolean insecureSsl = false;
 
     @SerializedName("ai_api_url")
     private String aiApiUrl = "";
@@ -71,6 +72,9 @@ public class ModConfig {
 
     @SerializedName("ai_format")
     private String aiFormat = "openai_compatible";
+
+    @SerializedName("ai_timeout_seconds")
+    private int aiTimeoutSeconds = 45;
 
     @SerializedName("lingva_api_url")
     private String lingvaApiUrl = "https://lingva.ml/api/v1";
@@ -189,6 +193,14 @@ public class ModConfig {
         this.aiFormat = aiFormat;
     }
 
+    public int getAiTimeoutSeconds() {
+        return aiTimeoutSeconds;
+    }
+
+    public void setAiTimeoutSeconds(int aiTimeoutSeconds) {
+        this.aiTimeoutSeconds = aiTimeoutSeconds;
+    }
+
     public String getLingvaApiUrl() {
         return lingvaApiUrl;
     }
@@ -221,7 +233,7 @@ public class ModConfig {
                 if (config == null) {
                     throw new JsonParseException("Config is empty");
                 }
-                boolean migrated = config.migrateLegacyDefaults();
+                boolean migrated = config.migrateConfig();
                 config.normalize();
                 if (migrated) {
                     config.save(configPath);
@@ -261,7 +273,7 @@ public class ModConfig {
             configVersion = CURRENT_CONFIG_VERSION;
         }
         if (translationService == null || !FREE_SERVICES.contains(translationService.toLowerCase())) {
-            translationService = "google_free";
+            translationService = "ai_free";
         } else {
             translationService = translationService.toLowerCase();
         }
@@ -278,20 +290,28 @@ public class ModConfig {
         if (aiApiKey == null) aiApiKey = "";
         if (aiModelId == null) aiModelId = "";
         if (aiFormat == null || aiFormat.isBlank()) aiFormat = "openai_compatible";
+        if (aiTimeoutSeconds < 10) aiTimeoutSeconds = 45;
+        if (aiTimeoutSeconds > 180) aiTimeoutSeconds = 180;
         if (lingvaApiUrl == null || lingvaApiUrl.isBlank()) lingvaApiUrl = "https://lingva.ml/api/v1";
         if (libreTranslateApiUrl == null) libreTranslateApiUrl = "";
         if (libreTranslateApiKey == null) libreTranslateApiKey = "";
     }
 
-    private boolean migrateLegacyDefaults() {
+    private boolean migrateConfig() {
         if (configVersion >= CURRENT_CONFIG_VERSION) {
             return false;
         }
-        if (configVersion < 2) {
-            showOriginal = false;
-            translateAllMessages = false;
-            translationFormat = "{message}";
-            singleLineDisplay = true;
+        if (configVersion < 3) {
+            // Older releases enabled certificate bypass by default. Reset it once on upgrade
+            // so existing installations receive the secure default; users can explicitly opt in again.
+            insecureSsl = false;
+        }
+        if (configVersion < 5) {
+            // v5 adds the built-in free service and the configurable AI timeout. User-chosen
+            // services are preserved: ai_free is opt-in and `ai` keeps whatever endpoint was set.
+            if (aiTimeoutSeconds < 10) {
+                aiTimeoutSeconds = 45;
+            }
         }
         translateOutgoingMessages = false;
         outgoingTargetLanguage = "en";

@@ -24,30 +24,45 @@ public class MyMemoryTranslationProvider implements TranslationProvider {
 
     @Override
     public CompletableFuture<String> translate(String text, String sourceLang, String targetLang) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String cleanText = text;
-                String source = normalize(sourceLang);
-                String target = normalize(targetLang);
-                String query = "q=" + URLEncoder.encode(cleanText, StandardCharsets.UTF_8)
-                        + "&langpair=" + URLEncoder.encode(source + "|" + target, StandardCharsets.UTF_8);
-                String url = API_URL + "?" + query;
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(url))
-                        .timeout(Duration.ofSeconds(10))
-                        .GET()
-                        .header("User-Agent", "Mozilla/5.0")
-                        .build();
+        final String cacheKey = TranslationCache.key("mymemory", sourceLang, targetLang, text);
+        final TranslationCache cache = TranslationCache.shared();
+        final String cached = cache.get(cacheKey);
+        if (cached != null) {
+            return CompletableFuture.completedFuture(cached);
+        }
+        return CompletableFuture.supplyAsync(() -> doTranslate(text, sourceLang, targetLang),
+                        HttpClientFactory.executor())
+                .thenApply(result -> {
+                    if (result != null && !result.isEmpty() && result.charAt(0) != '[') {
+                        cache.put(cacheKey, result);
+                    }
+                    return result;
+                });
+    }
 
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() == 200) {
-                    return parseResponse(response.body());
-                }
-                return "[MyMemory Error: HTTP " + response.statusCode() + "]";
-            } catch (Exception e) {
-                return "[MyMemory Error: " + e.getMessage() + "]";
+    private String doTranslate(String text, String sourceLang, String targetLang) {
+        try {
+            String cleanText = text;
+            String source = normalize(sourceLang);
+            String target = normalize(targetLang);
+            String query = "q=" + URLEncoder.encode(cleanText, StandardCharsets.UTF_8)
+                    + "&langpair=" + URLEncoder.encode(source + "|" + target, StandardCharsets.UTF_8);
+            String url = API_URL + "?" + query;
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(10))
+                    .GET()
+                    .header("User-Agent", "Mozilla/5.0")
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                return parseResponse(response.body());
             }
-        });
+            return "[MyMemory Error: HTTP " + response.statusCode() + "]";
+        } catch (Exception e) {
+            return "[MyMemory Error: " + e.getMessage() + "]";
+        }
     }
 
     @Override

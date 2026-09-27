@@ -26,5 +26,5 @@
   "chattranslation.config.single_line_display": "Single Line Display",
   "chattranslation.config.translate_all_messages": "Translate All Messages",
   "chattranslation.config.translate_all_messages.tooltip": "Translate all chat and system messages, not just player chat.",
-  "chattranslation.config.notice": "Saving will reload the current translation provider automatically. Check the game log for [ChatTranslation][test] results."
+  "chattranslation.config.notice": "Saving reloads the selected translation provider immediately. Insecure SSL should only be enabled temporarily for troubleshooting."
 }

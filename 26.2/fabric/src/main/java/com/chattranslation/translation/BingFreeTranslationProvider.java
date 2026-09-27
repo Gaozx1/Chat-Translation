@@ -24,29 +24,44 @@ public class BingFreeTranslationProvider implements TranslationProvider {
 
     @Override
     public CompletableFuture<String> translate(String text, String sourceLang, String targetLang) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                JsonObject body = new JsonObject();
-                body.addProperty("text", text);
-                body.addProperty("from", "auto".equalsIgnoreCase(sourceLang) ? "auto-detect" : sourceLang);
-                body.addProperty("to", targetLang);
+        final String cacheKey = TranslationCache.key("bing_free", sourceLang, targetLang, text);
+        final TranslationCache cache = TranslationCache.shared();
+        final String cached = cache.get(cacheKey);
+        if (cached != null) {
+            return CompletableFuture.completedFuture(cached);
+        }
+        return CompletableFuture.supplyAsync(() -> doTranslate(text, sourceLang, targetLang),
+                        HttpClientFactory.executor())
+                .thenApply(result -> {
+                    if (result != null && !result.isEmpty() && result.charAt(0) != '[') {
+                        cache.put(cacheKey, result);
+                    }
+                    return result;
+                });
+    }
 
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(API_URL))
-                        .timeout(Duration.ofSeconds(15))
-                        .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
-                        .build();
+    private String doTranslate(String text, String sourceLang, String targetLang) {
+        try {
+            JsonObject body = new JsonObject();
+            body.addProperty("text", text);
+            body.addProperty("from", "auto".equalsIgnoreCase(sourceLang) ? "auto-detect" : sourceLang);
+            body.addProperty("to", targetLang);
 
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() == 200) {
-                    return parseResponse(response.body());
-                }
-                return "[Bing Free Error: HTTP " + response.statusCode() + "]";
-            } catch (Exception e) {
-                return "[Bing Free Error: " + e.getMessage() + "]";
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(API_URL))
+                    .timeout(Duration.ofSeconds(15))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                return parseResponse(response.body());
             }
-        });
+            return "[Bing Free Error: HTTP " + response.statusCode() + "]";
+        } catch (Exception e) {
+            return "[Bing Free Error: " + e.getMessage() + "]";
+        }
     }
 
     @Override

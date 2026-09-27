@@ -43,8 +43,13 @@ gradle-8.9-bin.zip
 # 忽略 IDE/手动编译输出目录
 **/bin/
 
-# 26.2 Gradle Wrapper 必须随源码提交，否则全新克隆无法运行 gradlew
+# Gradle Wrapper 必须随源码提交，否则全新克隆无法运行 gradlew。
+# 注意：`gradle/` 规则会匹配任意深度的 gradle 目录，所以每个工程都要单独放行。
 !26.2/fabric/gradle/
 !26.2/fabric/gradle/wrapper/
 !26.2/fabric/gradle/wrapper/gradle-wrapper.jar
 !26.2/fabric/gradle/wrapper/gradle-wrapper.properties
+!26.3/fabric/gradle/
+!26.3/fabric/gradle/wrapper/
+!26.3/fabric/gradle/wrapper/gradle-wrapper.jar
+!26.3/fabric/gradle/wrapper/gradle-wrapper.properties

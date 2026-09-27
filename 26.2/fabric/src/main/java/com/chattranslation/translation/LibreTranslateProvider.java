@@ -25,38 +25,53 @@ public class LibreTranslateProvider implements TranslationProvider {
 
     @Override
     public CompletableFuture<String> translate(String text, String sourceLang, String targetLang) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String cleanText = text;
-                JsonObject body = new JsonObject();
-                body.addProperty("q", cleanText);
-                body.addProperty("source", normalize(sourceLang));
-                body.addProperty("target", normalize(targetLang));
-                body.addProperty("format", "text");
-                if (!apiKey.isBlank()) {
-                    body.addProperty("api_key", apiKey);
-                }
+        final String cacheKey = TranslationCache.key("libretranslate", sourceLang, targetLang, text);
+        final TranslationCache cache = TranslationCache.shared();
+        final String cached = cache.get(cacheKey);
+        if (cached != null) {
+            return CompletableFuture.completedFuture(cached);
+        }
+        return CompletableFuture.supplyAsync(() -> doTranslate(text, sourceLang, targetLang),
+                        HttpClientFactory.executor())
+                .thenApply(result -> {
+                    if (result != null && !result.isEmpty() && result.charAt(0) != '[') {
+                        cache.put(cacheKey, result);
+                    }
+                    return result;
+                });
+    }
 
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(apiUrl))
-                        .timeout(Duration.ofSeconds(15))
-                        .header("Content-Type", "application/json")
-                        .header("Accept", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
-                        .build();
-
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() == 200) {
-                    return parseResponse(response.body());
-                }
-                if (response.statusCode() == 429) {
-                    return "[LibreTranslate Error: Rate limited (HTTP 429)]";
-                }
-                return "[LibreTranslate Error: HTTP " + response.statusCode() + "]";
-            } catch (Exception e) {
-                return "[LibreTranslate Error: " + e.getMessage() + "]";
+    private String doTranslate(String text, String sourceLang, String targetLang) {
+        try {
+            String cleanText = text;
+            JsonObject body = new JsonObject();
+            body.addProperty("q", cleanText);
+            body.addProperty("source", normalize(sourceLang));
+            body.addProperty("target", normalize(targetLang));
+            body.addProperty("format", "text");
+            if (!apiKey.isBlank()) {
+                body.addProperty("api_key", apiKey);
             }
-        });
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(apiUrl))
+                    .timeout(Duration.ofSeconds(15))
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                return parseResponse(response.body());
+            }
+            if (response.statusCode() == 429) {
+                return "[LibreTranslate Error: Rate limited (HTTP 429)]";
+            }
+            return "[LibreTranslate Error: HTTP " + response.statusCode() + "]";
+        } catch (Exception e) {
+            return "[LibreTranslate Error: " + e.getMessage() + "]";
+        }
     }
 
     @Override

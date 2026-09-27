@@ -32,8 +32,8 @@ public class ModMenuIntegration implements ModMenuApi {
         ConfigCategory general = builder.getOrCreateCategory(Component.translatable("chattranslation.config.category.general"));
 
         general.addEntry(entries.startStringDropdownMenu(Component.translatable("chattranslation.config.translation_service"), editing.getTranslationService(), Component::literal)
-                .setSelections(Arrays.asList("google_free", "bing_free", "mymemory", "lingva", "libretranslate", "ai"))
-                .setDefaultValue("google_free")
+                .setSelections(Arrays.asList("ai_free", "google_free", "bing_free", "mymemory", "lingva", "libretranslate", "ai"))
+                .setDefaultValue("ai_free")
                 .setSaveConsumer(editing::setTranslationService)
                 .build());
 
@@ -111,6 +111,7 @@ public class ModMenuIntegration implements ModMenuApi {
 
         advanced.addEntry(entries.startStrField(Component.translatable("chattranslation.config.ai_api_key"), editing.getAiApiKey())
                 .setDefaultValue("")
+                .setTooltip(Component.translatable("chattranslation.config.ai_api_key.tooltip"))
                 .setSaveConsumer(editing::setAiApiKey)
                 .build());
 
@@ -120,6 +121,9 @@ public class ModMenuIntegration implements ModMenuApi {
                 .build());
 
         advanced.addEntry(entries.startTextDescription(Component.translatable("chattranslation.config.notice"))
+                .build());
+
+        advanced.addEntry(entries.startTextDescription(Component.translatable("chattranslation.config.free_notice"))
                 .build());
 
         return builder.build();

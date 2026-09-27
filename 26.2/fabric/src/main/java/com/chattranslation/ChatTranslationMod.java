@@ -9,6 +9,8 @@ import com.chattranslation.translation.GoogleTranslationProvider;
 import com.chattranslation.translation.LibreTranslateProvider;
 import com.chattranslation.translation.LingvaTranslationProvider;
 import com.chattranslation.translation.MyMemoryTranslationProvider;
+import com.chattranslation.translation.SecretVault;
+import com.chattranslation.translation.TranslationCache;
 import com.chattranslation.translation.TranslationProvider;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
@@ -31,12 +33,18 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -56,16 +64,50 @@ public class ChatTranslationMod implements ClientModInitializer {
     private static final Pattern PLAYER_STATUS_PATTERN = Pattern.compile("(?<![A-Za-z0-9_])([A-Za-z0-9_]{3,16})(?=\\s+(?:joined|left)\\b)", Pattern.CASE_INSENSITIVE);
     private static final Pattern PLAYER_BEFORE_CJK_PATTERN = Pattern.compile("(?<![A-Za-z0-9_])([A-Za-z0-9_]{3,16})(?=\\p{IsHan})");
     private static final Pattern PLACEHOLDER_VARIANT_PATTERN = Pattern.compile("(?i)(?<![A-Za-z0-9])[_\\-\\s]*CT\\s*(\\d+)[_\\-\\s]*(?![A-Za-z0-9])");
+
+    /**
+     * Restore-time matcher. Accepts the exact placeholder anywhere (even glued to a letter, which
+     * the variant pattern deliberately rejects) and otherwise falls back to a mangled variant, so
+     * reinsertion matches the previous earliest-match behaviour in one pass.
+     */
+    private static final Pattern RESTORE_PLACEHOLDER_PATTERN = Pattern.compile(
+            "(?i)(?:__CT\\s*(\\d+)\\s*__|(?<![A-Za-z0-9])[_\\-\\s]*CT\\s*(\\d+)[_\\-\\s]*(?![A-Za-z0-9]))");
     private static final Pattern LATIN_WORD_PATTERN = Pattern.compile("[A-Za-z]{2,}");
+
+    /** Player names repeat on every chat line; their boundary patterns are compiled once. */
+    private static final Map<String, Pattern> PLAYER_NAME_PATTERNS = new ConcurrentHashMap<>();
+    private static final int MAX_PLAYER_NAME_PATTERNS = 512;
+
+    private static final Pattern NON_DIGIT_PATTERN = Pattern.compile("\\D");
 
     private static ModConfig config;
     private static TranslationProvider translationProvider;
     private static final Set<String> translatingMessages = ConcurrentHashMap.newKeySet();
     private static final int MAX_PENDING_TRANSLATIONS = 64;
-    private static final Object TRANSLATION_QUEUE_LOCK = new Object();
     private static final AtomicInteger pendingTranslations = new AtomicInteger();
-    private static CompletableFuture<Void> translationQueue = CompletableFuture.completedFuture(null);
+
+    /**
+     * Incoming translations run with a bounded number of requests in flight instead of strictly
+     * serially. A slow public endpoint (tens of seconds per call) made the old serial queue build
+     * up a backlog far faster than it drained, so every later message timed out. Results are still
+     * applied in receive order by {@link #orderedResults}, so the chat stays readable.
+     */
+    private static final int MAX_CONCURRENT_TRANSLATIONS = 3;
+    private static final Semaphore translationSlots = new Semaphore(MAX_CONCURRENT_TRANSLATIONS);
+    /** Results wait here until every earlier message has been applied. */
+    private static final Map<Long, CompletedTranslation> orderedResults = new ConcurrentHashMap<>();
+    private static final AtomicLong nextTranslationSequence = new AtomicLong();
+    private static final AtomicLong nextDisplaySequence = new AtomicLong();
+    private static final int MAX_BUFFERED_RESULTS = 128;
+
     private static final int MAX_CHAT_MESSAGE_LENGTH = 256;
+
+    /** Off-thread scheduling for translation results; never blocks the netty or render thread. */
+    private static final ExecutorService TRANSLATION_EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "chattranslation-queue");
+        thread.setDaemon(true);
+        return thread;
+    });
     private static final Object OUTGOING_TRANSLATION_LOCK = new Object();
     private static CompletableFuture<Void> outgoingTranslationQueue = CompletableFuture.completedFuture(null);
     private static boolean bypassOutgoingTranslation;
@@ -99,7 +141,7 @@ public class ChatTranslationMod implements ClientModInitializer {
     }
 
     private static void reloadProviderInternal() {
-        String service = config.getTranslationService() == null ? "google_free" : config.getTranslationService().toLowerCase();
+        String service = config.getTranslationService() == null ? "ai_free" : config.getTranslationService().toLowerCase();
         LOGGER.info("[ChatTranslation][debug:provider] requestedService={}", service);
         switch (service) {
             case "google", "google_free", "google_translate" -> translationProvider =
@@ -122,6 +164,7 @@ public class ChatTranslationMod implements ClientModInitializer {
                 }
             }
             case "ai" -> translationProvider = createAiProvider();
+            case "ai_free" -> translationProvider = createFreeAiProvider();
             default -> {
                 LOGGER.warn("[ChatTranslation] Unsupported translation service '{}', falling back to MyMemory", service);
                 translationProvider = new MyMemoryTranslationProvider(config.isInsecureSsl());
@@ -172,6 +215,28 @@ public class ChatTranslationMod implements ClientModInitializer {
                 || normalized.contains("请选择两种不同语言");
     }
 
+    /**
+     * Built-in free endpoint (deepseek-v4.1-flash). The credential comes from {@link SecretVault},
+     * so the service works out of the box and the key never lands in config, logs or sources.
+     * It intentionally does not chain to MyMemory: a failed AI call should show the original
+     * message rather than silently switching the user to a different service.
+     */
+    private static TranslationProvider createFreeAiProvider() {
+        try {
+            return new AiTranslationProvider(
+                    SecretVault.FREE_ENDPOINT,
+                    SecretVault.freeApiKey(),
+                    SecretVault.FREE_MODEL_ID,
+                    config.isInsecureSsl(),
+                    "DeepSeek Free",
+                    config.getAiTimeoutSeconds());
+        } catch (RuntimeException e) {
+            LOGGER.warn("[ChatTranslation] built-in free provider is unavailable, falling back to MyMemory: {}",
+                    e.getMessage());
+            return new MyMemoryTranslationProvider(config.isInsecureSsl());
+        }
+    }
+
     private static TranslationProvider createAiProvider() {
         String format = config.getAiFormat() == null ? "openai_compatible" : config.getAiFormat().toLowerCase();
         return switch (format) {
@@ -189,13 +254,15 @@ public class ChatTranslationMod implements ClientModInitializer {
                     config.getAiApiKey(),
                     config.getAiModelId(),
                     config.isInsecureSsl(),
-                    "AI Translator");
+                    "AI Translator",
+                    config.getAiTimeoutSeconds());
             default -> new AiTranslationProvider(
                     config.getAiApiUrl(),
                     config.getAiApiKey(),
                     config.getAiModelId(),
                     config.isInsecureSsl(),
-                    "AI Translator");
+                    "AI Translator",
+                    config.getAiTimeoutSeconds());
         };
     }
 
@@ -330,6 +397,21 @@ public class ChatTranslationMod implements ClientModInitializer {
             return false;
         }
 
+        TranslationProvider provider = translationProvider;
+        long sequence = nextTranslationSequence.getAndIncrement();
+
+        // Serve repeats without touching the network. The sequence is taken first so cache hits
+        // obey the same display ordering as real translations.
+        String cacheKey = TranslationCache.key(provider.getName(), "auto", targetLang,
+                protectedMessage.textForTranslation());
+        String cached = TranslationCache.shared().get(cacheKey);
+        if (cached != null) {
+            translatingMessages.remove(messageKey);
+            offerOrderedResult(sequence, new CompletedTranslation(
+                    message, protectedMessage, originalText, cached, null, provider, showOriginalOnFailure));
+            return true;
+        }
+
         if (pendingTranslations.incrementAndGet() > MAX_PENDING_TRANSLATIONS) {
             pendingTranslations.decrementAndGet();
             translatingMessages.remove(messageKey);
@@ -337,39 +419,70 @@ public class ChatTranslationMod implements ClientModInitializer {
             return false;
         }
 
-        TranslationProvider provider = translationProvider;
-        LOGGER.debug("[ChatTranslation] queued translation: target={}, provider={}, pending={}",
-                targetLang, provider.getName(), pendingTranslations.get());
+        LOGGER.debug("[ChatTranslation] queued translation: seq={}, target={}, provider={}, pending={}",
+                sequence, targetLang, provider.getName(), pendingTranslations.get());
 
-        synchronized (TRANSLATION_QUEUE_LOCK) {
-            translationQueue = translationQueue
-                    .handle((ignored, previousError) -> null)
-                    .thenCompose(ignored -> translateQueued(
-                            provider, message, protectedMessage, originalText, targetLang, showOriginalOnFailure))
-                    .whenComplete((ignored, throwable) -> {
-                        translatingMessages.remove(messageKey);
-                        pendingTranslations.decrementAndGet();
-                    });
-        }
+        // Bounded concurrency: permits are acquired off-thread so chat event handlers never block
+        // the netty thread. The permit is only released once the request itself has finished, and
+        // never on a failed acquisition, so the pool cannot drift upwards.
+        CompletableFuture.runAsync(translationSlots::acquireUninterruptibly, TRANSLATION_EXECUTOR)
+                .thenCompose(ignored -> translateQueued(
+                                provider, message, protectedMessage, originalText, targetLang, showOriginalOnFailure)
+                        .whenComplete((ignoredResult, ignoredError) -> translationSlots.release()))
+                .whenComplete((result, throwable) -> {
+                    translatingMessages.remove(messageKey);
+                    pendingTranslations.decrementAndGet();
+                    offerOrderedResult(sequence, result);
+                });
         return true;
     }
 
-    private CompletableFuture<Void> translateQueued(TranslationProvider provider, Component originalMessage,
-                                                     ProtectedMessage protectedMessage, String originalText,
-                                                     String targetLang, boolean showOriginalOnFailure) {
+    /** Serialised display barrier; keeps translations from appearing out of order. */
+    private static void offerOrderedResult(long sequence, CompletedTranslation result) {
+        synchronized (orderedResults) {
+            orderedResults.put(sequence, result);
+            // If the head of the line is still missing while the buffer is oversized, advance past
+            // it: one stalled request must not block display forever or let the map grow unbounded.
+            while (orderedResults.size() > MAX_BUFFERED_RESULTS
+                    && !orderedResults.containsKey(nextDisplaySequence.get())) {
+                nextDisplaySequence.incrementAndGet();
+            }
+            while (true) {
+                CompletedTranslation ready = orderedResults.remove(nextDisplaySequence.get());
+                if (ready == null) {
+                    break;
+                }
+                nextDisplaySequence.incrementAndGet();
+                Minecraft.getInstance().execute(ready);
+            }
+        }
+    }
+
+    private CompletableFuture<CompletedTranslation> translateQueued(TranslationProvider provider, Component originalMessage,
+                                                                    ProtectedMessage protectedMessage, String originalText,
+                                                                    String targetLang, boolean showOriginalOnFailure) {
         try {
             return provider.translate(protectedMessage.textForTranslation(), "auto", targetLang)
-                    .handle((translatedText, throwable) -> {
-                        Minecraft.getInstance().execute(() -> handleTranslationResult(
-                                originalMessage, protectedMessage, originalText, translatedText,
-                                throwable, provider, showOriginalOnFailure));
-                        return null;
-                    });
+                    .handle((translatedText, throwable) ->
+                            new CompletedTranslation(originalMessage, protectedMessage, originalText,
+                                    translatedText, throwable, provider, showOriginalOnFailure));
         } catch (Throwable throwable) {
-            Minecraft.getInstance().execute(() -> handleTranslationResult(
+            return CompletableFuture.completedFuture(new CompletedTranslation(
                     originalMessage, protectedMessage, originalText, null,
                     throwable, provider, showOriginalOnFailure));
-            return CompletableFuture.completedFuture(null);
+        }
+    }
+
+    /** A finished translation waiting to be applied on the render thread. */
+    private record CompletedTranslation(Component originalMessage, ProtectedMessage protectedMessage,
+                                        String originalText, String translatedText, Throwable throwable,
+                                        TranslationProvider provider, boolean showOriginalOnFailure)
+            implements Runnable {
+
+        @Override
+        public void run() {
+            handleTranslationResultStatic(originalMessage, protectedMessage, originalText, translatedText,
+                    throwable, provider, showOriginalOnFailure);
         }
     }
 
@@ -502,6 +615,13 @@ public class ChatTranslationMod implements ClientModInitializer {
     private void handleTranslationResult(Component originalMessage, ProtectedMessage protectedMessage,
                                          String originalText, String translatedText, Throwable throwable,
                                          TranslationProvider provider, boolean showOriginalOnFailure) {
+        handleTranslationResultStatic(originalMessage, protectedMessage, originalText, translatedText,
+                throwable, provider, showOriginalOnFailure);
+    }
+
+    private static void handleTranslationResultStatic(Component originalMessage, ProtectedMessage protectedMessage,
+                                                      String originalText, String translatedText, Throwable throwable,
+                                                      TranslationProvider provider, boolean showOriginalOnFailure) {
         if (throwable != null) {
             LOGGER.warn("[ChatTranslation] {} translation failed: {}", provider.getName(), throwable.getMessage());
             showOriginalAfterFailure(originalMessage, showOriginalOnFailure);
@@ -530,13 +650,13 @@ public class ChatTranslationMod implements ClientModInitializer {
         showMessage(translationMessage);
     }
 
-    private void showOriginalAfterFailure(Component originalMessage, boolean showOriginalOnFailure) {
+    private static void showOriginalAfterFailure(Component originalMessage, boolean showOriginalOnFailure) {
         if (showOriginalOnFailure) {
             showMessage(originalMessage);
         }
     }
 
-    private void showMessage(Component message) {
+    private static void showMessage(Component message) {
         Minecraft client = Minecraft.getInstance();
         if (client.gui != null) {
             client.gui.hud.getChat().addClientSystemMessage(message);
@@ -545,7 +665,7 @@ public class ChatTranslationMod implements ClientModInitializer {
         }
     }
 
-    private Component formatTranslationMessage(String original, Component translated) {
+    private static Component formatTranslationMessage(String original, Component translated) {
         if (config.isSingleLineDisplay() || !config.isShowOriginal()) {
             return translated;
         }
@@ -570,13 +690,40 @@ public class ChatTranslationMod implements ClientModInitializer {
         if (input == null || input.isBlank()) {
             return "";
         }
-        String sectionSign = Character.toString((char) 0x00A7);
-        return input.replaceAll("(?i)" + sectionSign + "[0-9A-FK-ORX]", "")
-                .replaceAll("\\s+", " ")
-                .trim();
+        StringBuilder builder = new StringBuilder(input.length());
+        boolean lastWasSpace = false;
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+            if (c == '\u00A7' && i + 1 < input.length() && isFormatCode(input.charAt(i + 1))) {
+                i++;
+                continue;
+            }
+            if (Character.isWhitespace(c)) {
+                if (!lastWasSpace && builder.length() > 0) {
+                    builder.append(' ');
+                    lastWasSpace = true;
+                }
+                continue;
+            }
+            builder.append(c);
+            lastWasSpace = false;
+        }
+        int end = builder.length();
+        while (end > 0 && builder.charAt(end - 1) == ' ') {
+            end--;
+        }
+        builder.setLength(end);
+        return builder.toString();
     }
 
-    private String normalizeMinecraftFormatting(String input) {
+    private static boolean isFormatCode(char c) {
+        char upper = Character.toUpperCase(c);
+        return (upper >= '0' && upper <= '9') || (upper >= 'A' && upper <= 'F')
+                || upper == 'K' || upper == 'L' || upper == 'M' || upper == 'N'
+                || upper == 'O' || upper == 'R' || upper == 'X';
+    }
+
+    private static String normalizeMinecraftFormatting(String input) {
         return input.replace('&', (char) 0x00A7);
     }
 
@@ -690,7 +837,16 @@ public class ChatTranslationMod implements ClientModInitializer {
             }
         }
         for (String name : names) {
-            Matcher matcher = Pattern.compile("(?<![A-Za-z0-9_])" + Pattern.quote(name) + "(?![A-Za-z0-9_])").matcher(text);
+            // Compiled once per distinct player name instead of once per message per player.
+            Pattern pattern = PLAYER_NAME_PATTERNS.get(name);
+            if (pattern == null) {
+                if (PLAYER_NAME_PATTERNS.size() >= MAX_PLAYER_NAME_PATTERNS) {
+                    PLAYER_NAME_PATTERNS.clear();
+                }
+                pattern = Pattern.compile("(?<![A-Za-z0-9_])" + Pattern.quote(name) + "(?![A-Za-z0-9_])");
+                PLAYER_NAME_PATTERNS.put(name, pattern);
+            }
+            Matcher matcher = pattern.matcher(text);
             while (matcher.find()) {
                 tokens.add(new ProtectedToken(matcher.start(), matcher.end(), matcher.group(), Style.EMPTY, TokenKind.TEXT, null));
             }
@@ -747,26 +903,67 @@ public class ChatTranslationMod implements ClientModInitializer {
         return false;
     }
 
-    private MutableComponent restoreProtectedMessage(ProtectedMessage protectedMessage, String translatedText) {
+    private static MutableComponent restoreProtectedMessage(ProtectedMessage protectedMessage, String translatedText) {
         MutableComponent result = Component.empty();
         String remaining = translatedText == null ? "" : translatedText;
+        List<ProtectedToken> tokens = protectedMessage.tokens();
+        if (tokens.isEmpty()) {
+            appendLiteralWithLinks(result, remaining, protectedMessage.textStyle());
+            return result;
+        }
+
+        // Single left-to-right pass: placeholders are re-inserted in the order they appear in the
+        // translated text, which matches the previous "earliest match wins" behaviour while
+        // avoiding a rescan of every token at every step.
+        PlaceholderIndex index = PlaceholderIndex.of(tokens);
+        Matcher matcher = RESTORE_PLACEHOLDER_PATTERN.matcher(remaining);
         int cursor = 0;
-        while (cursor < remaining.length()) {
-            PlaceholderHit next = findNextPlaceholder(remaining, cursor, protectedMessage.tokens());
-            if (next == null) {
-                appendLiteralWithLinks(result, remaining.substring(cursor), protectedMessage.textStyle());
-                break;
+        while (matcher.find()) {
+            String indexText = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
+            ProtectedToken token = index.find(indexText);
+            if (token == null) {
+                continue;
             }
-            if (next.start() > cursor) {
-                appendLiteralWithLinks(result, remaining.substring(cursor, next.start()), protectedMessage.textStyle());
+            if (matcher.start() > cursor) {
+                appendLiteralWithLinks(result, remaining.substring(cursor, matcher.start()), protectedMessage.textStyle());
             }
-            result.append(next.token().toComponent());
-            cursor = next.end();
+            result.append(token.toComponent());
+            cursor = matcher.end();
+        }
+        if (cursor < remaining.length()) {
+            appendLiteralWithLinks(result, remaining.substring(cursor), protectedMessage.textStyle());
         }
         return result;
     }
 
-    private boolean containsAllPlaceholders(String translatedText, List<ProtectedToken> tokens) {
+    /** Maps the numeric part of a {@code __CT<n>__} placeholder back to its token in O(1). */
+    private record PlaceholderIndex(Map<String, ProtectedToken> byIndex, ProtectedToken single) {
+
+        static PlaceholderIndex of(List<ProtectedToken> tokens) {
+            if (tokens.size() == 1) {
+                ProtectedToken only = tokens.get(0);
+                return new PlaceholderIndex(Map.of(), only);
+            }
+            Map<String, ProtectedToken> map = new HashMap<>(tokens.size() * 2);
+            for (ProtectedToken token : tokens) {
+                if (token.placeholder() == null) {
+                    continue;
+                }
+                map.put(NON_DIGIT_PATTERN.matcher(token.placeholder()).replaceAll("").toLowerCase(java.util.Locale.ROOT), token);
+            }
+            return new PlaceholderIndex(map, null);
+        }
+
+        ProtectedToken find(String indexText) {
+            if (single != null) {
+                String expected = NON_DIGIT_PATTERN.matcher(single.placeholder()).replaceAll("");
+                return expected.equalsIgnoreCase(indexText) ? single : null;
+            }
+            return byIndex.get(indexText.toLowerCase(java.util.Locale.ROOT));
+        }
+    }
+
+    private static boolean containsAllPlaceholders(String translatedText, List<ProtectedToken> tokens) {
         for (ProtectedToken token : tokens) {
             if (token.placeholder() == null) {
                 continue;
@@ -774,7 +971,7 @@ public class ChatTranslationMod implements ClientModInitializer {
             if (translatedText.contains(token.placeholder())) {
                 continue;
             }
-            String placeholderIndex = token.placeholder().replaceAll("\\D", "");
+            String placeholderIndex = NON_DIGIT_PATTERN.matcher(token.placeholder()).replaceAll("");
             Matcher matcher = PLACEHOLDER_VARIANT_PATTERN.matcher(translatedText);
             boolean found = false;
             while (matcher.find()) {
@@ -790,26 +987,6 @@ public class ChatTranslationMod implements ClientModInitializer {
         return true;
     }
 
-    private PlaceholderHit findNextPlaceholder(String text, int fromIndex, List<ProtectedToken> tokens) {
-        PlaceholderHit hit = null;
-        for (ProtectedToken token : tokens) {
-            int index = text.indexOf(token.placeholder(), fromIndex);
-            if (index >= 0 && (hit == null || index < hit.start())) {
-                hit = new PlaceholderHit(index, index + token.placeholder().length(), token);
-            }
-        }
-        Matcher matcher = PLACEHOLDER_VARIANT_PATTERN.matcher(text);
-        matcher.region(fromIndex, text.length());
-        while (matcher.find()) {
-            ProtectedToken token = findTokenByPlaceholderIndex(tokens, matcher.group(1));
-            if (token != null && (hit == null || matcher.start() < hit.start())) {
-                hit = new PlaceholderHit(matcher.start(), matcher.end(), token);
-                break;
-            }
-        }
-        return hit;
-    }
-
     private ProtectedToken findTokenByPlaceholderIndex(List<ProtectedToken> tokens, String indexText) {
         String expected = "__CT" + indexText + "__";
         for (ProtectedToken token : tokens) {
@@ -820,7 +997,7 @@ public class ChatTranslationMod implements ClientModInitializer {
         return null;
     }
 
-    private void appendLiteralWithLinks(MutableComponent result, String text, Style textStyle) {
+    private static void appendLiteralWithLinks(MutableComponent result, String text, Style textStyle) {
         Matcher matcher = URL_PATTERN.matcher(text);
         int cursor = 0;
         while (matcher.find()) {
@@ -836,7 +1013,7 @@ public class ChatTranslationMod implements ClientModInitializer {
         }
     }
 
-    private Component createUrlComponent(String value, Style style) {
+    private static Component createUrlComponent(String value, Style style) {
         String url = value.startsWith("http://") || value.startsWith("https://") ? value : "https://" + value;
         try {
             return Component.literal(value).withStyle(style.withClickEvent(new ClickEvent.OpenUrl(new URI(url))));

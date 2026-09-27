@@ -14,7 +14,9 @@ import java.util.concurrent.CompletableFuture;
 
 public class GeminiTranslationProvider implements TranslationProvider {
 
-    private static final int MAX_ATTEMPTS = 3;
+    private static final int MAX_ATTEMPTS = 2;
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(20);
+    private static final Duration RETRY_BACKOFF = Duration.ofMillis(300);
 
     private final HttpClient httpClient;
     private final String apiUrl;
@@ -28,49 +30,20 @@ public class GeminiTranslationProvider implements TranslationProvider {
 
     @Override
     public CompletableFuture<String> translate(String text, String sourceLang, String targetLang) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                if (apiUrl == null || apiUrl.isBlank()) {
-                    return "[Gemini Error: API URL not set]";
-                }
-                if (apiKey == null || apiKey.isBlank()) {
-                    return "[Gemini Error: API key not set]";
-                }
-
-                JsonObject body = new JsonObject();
-                JsonArray contents = new JsonArray();
-                JsonObject userContent = new JsonObject();
-                userContent.addProperty("role", "user");
-                JsonArray parts = new JsonArray();
-                JsonObject part = new JsonObject();
-                part.addProperty("text", "Translate this Minecraft chat text from " + sourceLang + " to " + targetLang + ". Return only the translated result. Do not explain. Preserve usernames, ranks, bracket tags, URLs, numbers, and game-specific tokens. If no translation is needed, return an empty string.\nText: " + text);
-                parts.add(part);
-                userContent.add("parts", parts);
-                contents.add(userContent);
-                body.add("contents", contents);
-
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(apiUrl))
-                        .timeout(Duration.ofSeconds(20))
-                        .header("Content-Type", "application/json")
-                        .header("x-goog-api-key", apiKey)
-                        .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
-                        .build();
-
-                for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-                    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                    if (response.statusCode() == 200) {
-                        return parseResponse(response.body());
+        final String cacheKey = TranslationCache.key("gemini", sourceLang, targetLang, text);
+        final TranslationCache cache = TranslationCache.shared();
+        final String cached = cache.get(cacheKey);
+        if (cached != null) {
+            return CompletableFuture.completedFuture(cached);
+        }
+        return CompletableFuture.supplyAsync(() -> doTranslate(text, sourceLang, targetLang),
+                        HttpClientFactory.executor())
+                .thenApply(result -> {
+                    if (result != null && !result.isEmpty() && result.charAt(0) != '[') {
+                        cache.put(cacheKey, result);
                     }
-                    if (attempt == MAX_ATTEMPTS) {
-                        return "[Gemini Error: HTTP " + response.statusCode() + "]";
-                    }
-                }
-                return "[Gemini Error: Retry exhausted]";
-            } catch (Exception e) {
-                return "[Gemini Error: " + e.getMessage() + "]";
-            }
-        });
+                    return result;
+                });
     }
 
     @Override
@@ -81,6 +54,69 @@ public class GeminiTranslationProvider implements TranslationProvider {
     @Override
     public String getName() {
         return "Gemini";
+    }
+
+    private String doTranslate(String text, String sourceLang, String targetLang) {
+        try {
+            if (apiUrl == null || apiUrl.isBlank()) {
+                return "[Gemini Error: API URL not set]";
+            }
+            if (apiKey == null || apiKey.isBlank()) {
+                return "[Gemini Error: API key not set]";
+            }
+
+            JsonObject body = new JsonObject();
+            JsonArray contents = new JsonArray();
+            JsonObject userContent = new JsonObject();
+            userContent.addProperty("role", "user");
+            JsonArray parts = new JsonArray();
+            JsonObject part = new JsonObject();
+            part.addProperty("text", "Translate this Minecraft chat text from " + sourceLang + " to " + targetLang + ". Return only the translated result. Do not explain. Preserve usernames, ranks, bracket tags, URLs, numbers, and game-specific tokens. If no translation is needed, return an empty string.\nText: " + text);
+            parts.add(part);
+            userContent.add("parts", parts);
+            contents.add(userContent);
+            body.add("contents", contents);
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(apiUrl))
+                    .timeout(REQUEST_TIMEOUT)
+                    .header("Content-Type", "application/json")
+                    .header("x-goog-api-key", apiKey)
+                    .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
+                    .build();
+
+            for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                int status = response.statusCode();
+                if (status == 200) {
+                    return parseResponse(response.body());
+                }
+                if (attempt < MAX_ATTEMPTS && isRetryable(status)) {
+                    sleep(RETRY_BACKOFF.toMillis() * attempt);
+                    continue;
+                }
+                return "[Gemini Error: HTTP " + status + "]";
+            }
+            return "[Gemini Error: Retry exhausted]";
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return "[Gemini Error: interrupted]";
+        } catch (Exception e) {
+            return "[Gemini Error: " + e.getMessage() + "]";
+        }
+    }
+
+    /** 429, 408 and 5xx may succeed on a retry; other 4xx never will. */
+    static boolean isRetryable(int status) {
+        return status == 429 || status == 408 || status >= 500;
+    }
+
+    static void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private String parseResponse(String body) {

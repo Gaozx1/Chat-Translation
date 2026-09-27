@@ -10,11 +10,12 @@
   "chattranslation.config.outgoing_target_language": "发出消息的目标语言",
   "chattranslation.config.outgoing_target_language.tooltip": "翻译你发出的消息时使用的目标语言。",
   "chattranslation.config.translation_service": "翻译服务",
-  "chattranslation.config.translation_service.tooltip": "选择免费翻译服务，或使用你自己的 AI 兼容接口。",
+  "chattranslation.config.translation_service.tooltip": "ai_free 是内置的免费 DeepSeek 服务，无需配置。选择 ai 可使用你自己的 AI 兼容接口。",
   "chattranslation.config.insecure_ssl": "不安全 SSL 兼容模式",
   "chattranslation.config.ai_format": "AI 格式",
   "chattranslation.config.ai_api_url": "AI API 地址",
   "chattranslation.config.ai_api_key": "AI API Key",
+  "chattranslation.config.ai_api_key.tooltip": "仅 ai 服务需要填写。内置的 ai_free 使用已加密的内置密钥，这里留空即可。",
   "chattranslation.config.ai_model_id": "AI 模型 ID",
   "chattranslation.config.lingva_api_url": "Lingva API 地址",
   "chattranslation.config.libretranslate_api_url": "LibreTranslate API 地址",
@@ -26,5 +27,6 @@
   "chattranslation.config.single_line_display": "单行显示",
   "chattranslation.config.translate_all_messages": "翻译所有消息",
   "chattranslation.config.translate_all_messages.tooltip": "翻译聊天消息和系统消息，而不只是玩家聊天。",
-  "chattranslation.config.notice": "保存后会自动重载当前翻译服务。测试连接结果请查看游戏日志中的 [ChatTranslation][test]。"
+  "chattranslation.config.notice": "保存后会立即重新加载所选翻译服务。不安全 SSL 仅应在排查证书问题时临时开启。",
+  "chattranslation.config.free_notice": "内置免费服务通过 api.mcapple.top 使用 deepseek-v4.1-flash。密钥以加密形式内置在模组中；公共额度为共享资源，响应可能较慢或偶发失败。"
 }

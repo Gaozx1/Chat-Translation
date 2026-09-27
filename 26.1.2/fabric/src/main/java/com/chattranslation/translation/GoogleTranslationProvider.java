@@ -27,32 +27,47 @@ public class GoogleTranslationProvider implements TranslationProvider {
 
     @Override
     public CompletableFuture<String> translate(String text, String sourceLang, String targetLang) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String source = normalize(sourceLang);
-                String target = normalize(targetLang);
-                String encodedText = URLEncoder.encode(text, StandardCharsets.UTF_8);
-                String url = TRANSLATE_URL +
-                        "&sl=" + source +
-                        "&tl=" + target +
-                        "&q=" + encodedText;
+        final String cacheKey = TranslationCache.key("google_free", sourceLang, targetLang, text);
+        final TranslationCache cache = TranslationCache.shared();
+        final String cached = cache.get(cacheKey);
+        if (cached != null) {
+            return CompletableFuture.completedFuture(cached);
+        }
+        return CompletableFuture.supplyAsync(() -> doTranslate(text, sourceLang, targetLang),
+                        HttpClientFactory.executor())
+                .thenApply(result -> {
+                    if (result != null && !result.isEmpty() && result.charAt(0) != '[') {
+                        cache.put(cacheKey, result);
+                    }
+                    return result;
+                });
+    }
 
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(url))
-                        .timeout(Duration.ofSeconds(10))
-                        .GET()
-                        .header("User-Agent", "Mozilla/5.0")
-                        .build();
+    private String doTranslate(String text, String sourceLang, String targetLang) {
+        try {
+            String source = normalize(sourceLang);
+            String target = normalize(targetLang);
+            String encodedText = URLEncoder.encode(text, StandardCharsets.UTF_8);
+            String url = TRANSLATE_URL +
+                    "&sl=" + source +
+                    "&tl=" + target +
+                    "&q=" + encodedText;
 
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() == 200) {
-                    return parseTranslationResponse(response.body());
-                }
-                return "[Google Free Error: HTTP " + response.statusCode() + "]";
-            } catch (Exception e) {
-                return "[Google Free Error: " + e.getMessage() + "]";
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(10))
+                    .GET()
+                    .header("User-Agent", "Mozilla/5.0")
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                return parseTranslationResponse(response.body());
             }
-        });
+            return "[Google Free Error: HTTP " + response.statusCode() + "]";
+        } catch (Exception e) {
+            return "[Google Free Error: " + e.getMessage() + "]";
+        }
     }
 
     @Override

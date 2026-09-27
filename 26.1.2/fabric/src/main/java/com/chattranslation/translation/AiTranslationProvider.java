@@ -15,76 +15,72 @@ import java.util.concurrent.CompletableFuture;
 
 public class AiTranslationProvider implements TranslationProvider {
 
-    private static final int MAX_ATTEMPTS = 3;
+    private static final int MAX_ATTEMPTS = 2;
+    private static final Duration RETRY_BACKOFF = Duration.ofMillis(300);
+
+    private static final String SYSTEM_PROMPT = "You are a Minecraft chat translation engine. "
+            + "Translate into the requested target language and return only the translated result. "
+            + "Do not explain. Do not add labels, quotes, notes, markdown, romanization, or extra punctuation. "
+            + "Preserve usernames, ranks, bracket tags, URLs, numbers, and game-specific tokens. "
+            + "If the text should not be translated or no translation is needed, return an empty string.";
+
+    /** Escaped once; the system prompt is identical for every request. */
+    private static final String ESCAPED_SYSTEM_PROMPT = escape(SYSTEM_PROMPT);
 
     private final HttpClient httpClient;
     private final String apiUrl;
     private final String apiKey;
     private final String modelId;
     private final String name;
+    private final String escapedModelId;
+    private final Duration requestTimeout;
 
     public AiTranslationProvider(String apiUrl, String apiKey, String modelId, boolean insecureSsl, String name) {
+        this(apiUrl, apiKey, modelId, insecureSsl, name, 45);
+    }
+
+    /**
+     * @param timeoutSeconds per-request deadline; public AI endpoints can take tens of seconds,
+     *                       so this is configurable instead of a hardcoded 20s that guarantees failures
+     */
+    public AiTranslationProvider(String apiUrl, String apiKey, String modelId, boolean insecureSsl, String name,
+                                 int timeoutSeconds) {
         this.httpClient = HttpClientFactory.create(insecureSsl);
         this.apiUrl = apiUrl;
         this.apiKey = apiKey;
         this.modelId = modelId;
         this.name = name;
+        this.escapedModelId = escape(modelId);
+        this.requestTimeout = Duration.ofSeconds(Math.max(10, Math.min(180, timeoutSeconds)));
     }
 
     @Override
     public CompletableFuture<String> translate(String text, String sourceLang, String targetLang) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                if (apiUrl == null || apiUrl.isBlank()) {
-                    return "[" + name + " Error: API URL not set]";
-                }
-                if (apiKey == null || apiKey.isBlank()) {
-                    return "[" + name + " Error: API key not set]";
-                }
-                if (modelId == null || modelId.isBlank()) {
-                    return "[" + name + " Error: Model ID not set]";
-                }
+        if (apiUrl == null || apiUrl.isBlank()) {
+            return CompletableFuture.completedFuture("[" + name + " Error: API URL not set]");
+        }
+        if (apiKey == null || apiKey.isBlank()) {
+            return CompletableFuture.completedFuture("[" + name + " Error: API key not set]");
+        }
+        if (modelId == null || modelId.isBlank()) {
+            return CompletableFuture.completedFuture("[" + name + " Error: Model ID not set]");
+        }
 
-                JsonObject body = new JsonObject();
-                body.addProperty("model", modelId);
-                JsonArray messages = new JsonArray();
+        final String cacheKey = TranslationCache.key(name, sourceLang, targetLang, text);
+        final TranslationCache cache = TranslationCache.shared();
+        final String cached = cache.get(cacheKey);
+        if (cached != null) {
+            return CompletableFuture.completedFuture(cached);
+        }
 
-                JsonObject system = new JsonObject();
-                system.addProperty("role", "system");
-                system.addProperty("content", "You are a Minecraft chat translation engine. Translate into the requested target language and return only the translated result. Do not explain. Do not add labels, quotes, notes, markdown, romanization, or extra punctuation. Preserve usernames, ranks, bracket tags, URLs, numbers, and game-specific tokens. If the text should not be translated or no translation is needed, return an empty string.");
-                messages.add(system);
-
-                JsonObject user = new JsonObject();
-                user.addProperty("role", "user");
-                user.addProperty("content", "Source language: " + sourceLang + "\nTarget language: " + targetLang + "\nText: " + text);
-                messages.add(user);
-
-                body.add("messages", messages);
-                body.addProperty("temperature", 0);
-
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(apiUrl))
-                        .timeout(Duration.ofSeconds(20))
-                        .header("Content-Type", "application/json")
-                        .header("Authorization", "Bearer " + apiKey)
-                        .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
-                        .build();
-
-                for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-                    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                    String responseBody = response.body();
-                    if (response.statusCode() == 200) {
-                        return parseResponse(responseBody);
+        final String body = buildBody(text, sourceLang, targetLang);
+        return CompletableFuture.supplyAsync(() -> request(body), HttpClientFactory.executor())
+                .thenApply(result -> {
+                    if (!isFailure(result)) {
+                        cache.put(cacheKey, result);
                     }
-                    if (attempt == MAX_ATTEMPTS) {
-                        return "[" + name + " Error: HTTP " + response.statusCode() + " " + summarize(responseBody) + "]";
-                    }
-                }
-                return "[" + name + " Error: Retry exhausted]";
-            } catch (Exception e) {
-                return "[" + name + " Error: " + e.getMessage() + "]";
-            }
-        });
+                    return result;
+                });
     }
 
     @Override
@@ -95,6 +91,69 @@ public class AiTranslationProvider implements TranslationProvider {
     @Override
     public String getName() {
         return name;
+    }
+
+    /** Hand-rolled JSON: same wire shape as before, without building a Gson tree per message. */
+    private String buildBody(String text, String sourceLang, String targetLang) {
+        String safeText = text == null ? "" : text;
+        StringBuilder builder = new StringBuilder(safeText.length() + 384);
+        builder.append("{\"model\":\"").append(escapedModelId).append("\",\"messages\":[");
+        builder.append("{\"role\":\"system\",\"content\":\"").append(ESCAPED_SYSTEM_PROMPT).append("\"},");
+        builder.append("{\"role\":\"user\",\"content\":\"Source language: ").append(escape(sourceLang));
+        builder.append("\\nTarget language: ").append(escape(LanguageNames.describeWithCode(targetLang)));
+        builder.append("\\nText: ").append(escape(safeText)).append("\"}],");
+        builder.append("\"temperature\":0}");
+        return builder.toString();
+    }
+
+    /** Blocking send with bounded retries; runs on the shared translation pool. */
+    private String request(String body) {
+        HttpRequest request;
+        try {
+            request = HttpRequest.newBuilder()
+                    .uri(URI.create(apiUrl))
+                    .timeout(requestTimeout)
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                    .build();
+        } catch (RuntimeException e) {
+            return "[" + name + " Error: " + e.getMessage() + "]";
+        }
+
+        try {
+            for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                int status = response.statusCode();
+                if (status == 200) {
+                    return parseResponse(response.body());
+                }
+                if (attempt < MAX_ATTEMPTS && isRetryable(status)) {
+                    sleep(RETRY_BACKOFF.toMillis() * attempt);
+                    continue;
+                }
+                return "[" + name + " Error: HTTP " + status + " " + summarize(response.body()) + "]";
+            }
+            return "[" + name + " Error: Retry exhausted]";
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return "[" + name + " Error: interrupted]";
+        } catch (Exception e) {
+            return "[" + name + " Error: " + e.getMessage() + "]";
+        }
+    }
+
+    /** 429, 408 and 5xx may succeed on a retry; other 4xx (bad key, bad model) never will. */
+    private static boolean isRetryable(int status) {
+        return status == 429 || status == 408 || status >= 500;
+    }
+
+    private static void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private String parseResponse(String body) {
@@ -139,6 +198,7 @@ public class AiTranslationProvider implements TranslationProvider {
         }
 
         JsonObject object = element.getAsJsonObject();
+        // Reasoning models can return chain-of-thought next to the answer; the answer wins.
         String[] directFields = {"content", "text", "output_text", "result", "response", "answer", "translation", "translatedText"};
         for (String field : directFields) {
             if (object.has(field)) {
@@ -197,6 +257,39 @@ public class AiTranslationProvider implements TranslationProvider {
             }
         }
         return value;
+    }
+
+    /** True when a provider reply is an internal error marker rather than a translation. */
+    private static boolean isFailure(String result) {
+        return result == null || result.isEmpty() || result.charAt(0) == '[';
+    }
+
+    /** Minimal JSON string escaping; avoids a full Gson writer on the hot path. */
+    static String escape(String value) {
+        if (value == null) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder(value.length() + 16);
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '"' -> builder.append("\\\"");
+                case '\\' -> builder.append("\\\\");
+                case '\n' -> builder.append("\\n");
+                case '\r' -> builder.append("\\r");
+                case '\t' -> builder.append("\\t");
+                case '\b' -> builder.append("\\b");
+                case '\f' -> builder.append("\\f");
+                default -> {
+                    if (c < 0x20) {
+                        builder.append("\\u").append(String.format("%04x", (int) c));
+                    } else {
+                        builder.append(c);
+                    }
+                }
+            }
+        }
+        return builder.toString();
     }
 
     private String summarize(String body) {

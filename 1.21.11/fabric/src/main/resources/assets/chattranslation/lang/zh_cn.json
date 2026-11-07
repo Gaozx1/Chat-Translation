@@ -28,5 +28,11 @@
   "chattranslation.config.translate_all_messages": "翻译所有消息",
   "chattranslation.config.translate_all_messages.tooltip": "翻译聊天消息和系统消息，而不只是玩家聊天。",
   "chattranslation.config.notice": "保存后会立即重新加载所选翻译服务。不安全 SSL 仅应在排查证书问题时临时开启。",
-  "chattranslation.config.free_notice": "内置免费服务通过 api.mcapple.top 使用 deepseek-v4.1-flash。密钥以加密形式内置在模组中；公共额度为共享资源，响应可能较慢或偶发失败。"
+  "chattranslation.config.free_notice": "内置免费服务通过 api.mcapple.top 使用 deepseek-v4.1-flash。密钥以加密形式内置在模组中；公共额度为共享资源，响应可能较慢或偶发失败。",
+  "chattranslation.config.context_aware_translation": "上下文翻译",
+  "chattranslation.config.context_aware_translation.tooltip": "把最近几条聊天一起发给 AI，帮助它判断代词、俣语和省略句。默认关闭：开启后会把历史聊天内容发送给第三方服务。",
+  "chattranslation.config.context_line_count": "上下文条数",
+  "chattranslation.config.context_line_count.tooltip": "附带多少条近期聊天。条数越多上下文越准，但每次请求都会更慢。",
+  "chattranslation.config.ai_timeout_seconds": "AI 请求超时",
+  "chattranslation.config.ai_timeout_seconds.tooltip": "单次请求的超时秒数。公共接口可能几十秒才返回，经常超时可以把这里调大。"
 }

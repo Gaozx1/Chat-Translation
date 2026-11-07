@@ -28,5 +28,11 @@
   "chattranslation.config.translate_all_messages": "Translate All Messages",
   "chattranslation.config.translate_all_messages.tooltip": "Translate all chat and system messages, not just player chat.",
   "chattranslation.config.notice": "Saving reloads the selected translation provider immediately. Insecure SSL should only be enabled temporarily for troubleshooting.",
-  "chattranslation.config.free_notice": "The built-in free endpoint uses deepseek-v4.1-flash through api.mcapple.top. Its key is embedded and encrypted in the mod; the public quota is shared, so expect slower replies and occasional failures."
+  "chattranslation.config.free_notice": "The built-in free endpoint uses deepseek-v4.1-flash through api.mcapple.top. Its key is embedded and encrypted in the mod; the public quota is shared, so expect slower replies and occasional failures.",
+  "chattranslation.config.context_aware_translation": "Traduction contextuelle",
+  "chattranslation.config.context_aware_translation.tooltip": "Envoie quelques lignes de chat recentes a l'IA pour qu'elle comprenne les pronoms, l'argot et les reponses courtes. Desactive par defaut : le chat precedent est transmis a un tiers.",
+  "chattranslation.config.context_line_count": "Nombre de lignes de contexte",
+  "chattranslation.config.context_line_count.tooltip": "Nombre de lignes recentes jointes. Plus de lignes aident a lever l'ambiguite mais ralentissent chaque requete.",
+  "chattranslation.config.ai_timeout_seconds": "Delai d'attente IA",
+  "chattranslation.config.ai_timeout_seconds.tooltip": "Delai par requete en secondes. Les points d'acces publics peuvent etre lents ; augmentez-le si les traductions expirent."
 }

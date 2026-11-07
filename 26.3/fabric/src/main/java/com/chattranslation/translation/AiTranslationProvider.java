@@ -11,6 +11,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 public class AiTranslationProvider implements TranslationProvider {
@@ -24,8 +25,22 @@ public class AiTranslationProvider implements TranslationProvider {
             + "Preserve usernames, ranks, bracket tags, URLs, numbers, and game-specific tokens. "
             + "If the text should not be translated or no translation is needed, return an empty string.";
 
+    /** Used when recent chat lines are supplied; the extra rules stop the model from answering them. */
+    private static final String CONTEXT_SYSTEM_PROMPT = SYSTEM_PROMPT
+            + " You will also receive a few recent chat lines for context only. "
+            + "Never translate, answer, continue or comment on the context. "
+            + "Use it only to disambiguate words, pronouns and slang in the line marked as the text to translate.";
+
     /** Escaped once; the system prompt is identical for every request. */
     private static final String ESCAPED_SYSTEM_PROMPT = escape(SYSTEM_PROMPT);
+    private static final String ESCAPED_CONTEXT_SYSTEM_PROMPT = escape(CONTEXT_SYSTEM_PROMPT);
+
+    /**
+     * Context changes the meaning of the text, so it must be part of the cache identity.
+     * Only the tail of the buffer is fingerprinted: older lines falling off the ring must not
+     * invalidate an otherwise identical request.
+     */
+    private static final int CACHE_CONTEXT_LINES = 4;
 
     private final HttpClient httpClient;
     private final String apiUrl;
@@ -56,6 +71,12 @@ public class AiTranslationProvider implements TranslationProvider {
 
     @Override
     public CompletableFuture<String> translate(String text, String sourceLang, String targetLang) {
+        return translateWithContext(text, sourceLang, targetLang, List.of());
+    }
+
+    @Override
+    public CompletableFuture<String> translateWithContext(String text, String sourceLang, String targetLang,
+                                                          List<String> contextLines) {
         if (apiUrl == null || apiUrl.isBlank()) {
             return CompletableFuture.completedFuture("[" + name + " Error: API URL not set]");
         }
@@ -66,21 +87,65 @@ public class AiTranslationProvider implements TranslationProvider {
             return CompletableFuture.completedFuture("[" + name + " Error: Model ID not set]");
         }
 
-        final String cacheKey = TranslationCache.key(name, sourceLang, targetLang, text);
+        final List<String> context = contextLines == null || contextLines.isEmpty()
+                ? List.of()
+                : List.copyOf(contextLines);
+        final String cacheKey = cacheKeyFor(text, sourceLang, targetLang, context);
         final TranslationCache cache = TranslationCache.shared();
         final String cached = cache.get(cacheKey);
         if (cached != null) {
             return CompletableFuture.completedFuture(cached);
         }
 
-        final String body = buildBody(text, sourceLang, targetLang);
+        // Fail fast while the endpoint is known-bad instead of queueing behind it.
+        final ProviderHealth health = ProviderHealth.of(name);
+        if (health.isOpen()) {
+            return CompletableFuture.completedFuture(
+                    "[" + name + " Error: cooling down, " + (health.remainingCooldownMillis() / 1000) + "s left]");
+        }
+
+        final String body = buildBody(text, sourceLang, targetLang, context);
         return CompletableFuture.supplyAsync(() -> request(body), HttpClientFactory.executor())
                 .thenApply(result -> {
-                    if (!isFailure(result)) {
+                    if (isFailure(result)) {
+                        health.recordFailure(isPermanentError(result));
+                    } else {
+                        health.recordSuccess();
                         cache.put(cacheKey, result);
                     }
                     return result;
                 });
+    }
+
+    /** Bad credentials, unknown model or malformed request will never succeed on retry. */
+    private static boolean isPermanentError(String result) {
+        return result != null && (result.contains("HTTP 400") || result.contains("HTTP 401")
+                || result.contains("HTTP 403") || result.contains("HTTP 404"));
+    }
+
+    @Override
+    public String peekCached(String text, String sourceLang, String targetLang, List<String> contextLines) {
+        List<String> context = contextLines == null ? List.of() : contextLines;
+        return TranslationCache.shared().get(cacheKeyFor(text, sourceLang, targetLang, context));
+    }
+
+    private String cacheKeyFor(String text, String sourceLang, String targetLang, List<String> context) {
+        return TranslationCache.key(name + '|' + modelId, sourceLang, targetLang, text, cacheContext(context));
+    }
+
+    /**
+     * Cache fingerprint of the context tail.
+     *
+     * <p>Only the last {@link #CACHE_CONTEXT_LINES} lines participate: as the ring buffer rolls,
+     * older lines drop out, and including them would needlessly split the cache into many
+     * near-duplicate entries for the same conversational state.
+     */
+    private static String cacheContext(List<String> context) {
+        if (context.isEmpty()) {
+            return "";
+        }
+        int from = Math.max(0, context.size() - CACHE_CONTEXT_LINES);
+        return String.join("\u0002", context.subList(from, context.size()));
     }
 
     @Override
@@ -94,11 +159,20 @@ public class AiTranslationProvider implements TranslationProvider {
     }
 
     /** Hand-rolled JSON: same wire shape as before, without building a Gson tree per message. */
-    private String buildBody(String text, String sourceLang, String targetLang) {
+    private String buildBody(String text, String sourceLang, String targetLang, List<String> context) {
         String safeText = text == null ? "" : text;
-        StringBuilder builder = new StringBuilder(safeText.length() + 384);
+        StringBuilder builder = new StringBuilder(safeText.length() + 512);
         builder.append("{\"model\":\"").append(escapedModelId).append("\",\"messages\":[");
-        builder.append("{\"role\":\"system\",\"content\":\"").append(ESCAPED_SYSTEM_PROMPT).append("\"},");
+        if (context.isEmpty()) {
+            builder.append("{\"role\":\"system\",\"content\":\"").append(ESCAPED_SYSTEM_PROMPT).append("\"},");
+        } else {
+            builder.append("{\"role\":\"system\",\"content\":\"").append(ESCAPED_CONTEXT_SYSTEM_PROMPT).append("\"},");
+            builder.append("{\"role\":\"user\",\"content\":\"Recent chat lines (context only, do not translate):\\n");
+            for (String line : context) {
+                builder.append("- ").append(escape(line)).append("\\n");
+            }
+            builder.append("\"},");
+        }
         builder.append("{\"role\":\"user\",\"content\":\"Source language: ").append(escape(sourceLang));
         builder.append("\\nTarget language: ").append(escape(LanguageNames.describeWithCode(targetLang)));
         builder.append("\\nText: ").append(escape(safeText)).append("\"}],");

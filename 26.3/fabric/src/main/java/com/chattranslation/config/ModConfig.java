@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
+import com.chattranslation.translation.ChatContextBuffer;
 
 public class ModConfig {
 
@@ -75,6 +76,16 @@ public class ModConfig {
 
     @SerializedName("ai_timeout_seconds")
     private int aiTimeoutSeconds = 45;
+
+    /**
+     * Off by default: context sends previous chat lines to a third-party provider, which is a
+     * privacy decision the user must make explicitly rather than inherit from an upgrade.
+     */
+    @SerializedName("context_aware_translation")
+    private boolean contextAwareTranslation = false;
+
+    @SerializedName("context_line_count")
+    private int contextLineCount = 6;
 
     @SerializedName("lingva_api_url")
     private String lingvaApiUrl = "https://lingva.ml/api/v1";
@@ -201,6 +212,22 @@ public class ModConfig {
         this.aiTimeoutSeconds = aiTimeoutSeconds;
     }
 
+    public boolean isContextAwareTranslation() {
+        return contextAwareTranslation;
+    }
+
+    public void setContextAwareTranslation(boolean contextAwareTranslation) {
+        this.contextAwareTranslation = contextAwareTranslation;
+    }
+
+    public int getContextLineCount() {
+        return contextLineCount;
+    }
+
+    public void setContextLineCount(int contextLineCount) {
+        this.contextLineCount = contextLineCount;
+    }
+
     public String getLingvaApiUrl() {
         return lingvaApiUrl;
     }
@@ -292,6 +319,8 @@ public class ModConfig {
         if (aiFormat == null || aiFormat.isBlank()) aiFormat = "openai_compatible";
         if (aiTimeoutSeconds < 10) aiTimeoutSeconds = 45;
         if (aiTimeoutSeconds > 180) aiTimeoutSeconds = 180;
+        if (contextLineCount < 0) contextLineCount = 0;
+        if (contextLineCount > ChatContextBuffer.MAX_LINES) contextLineCount = ChatContextBuffer.MAX_LINES;
         if (lingvaApiUrl == null || lingvaApiUrl.isBlank()) lingvaApiUrl = "https://lingva.ml/api/v1";
         if (libreTranslateApiUrl == null) libreTranslateApiUrl = "";
         if (libreTranslateApiKey == null) libreTranslateApiKey = "";

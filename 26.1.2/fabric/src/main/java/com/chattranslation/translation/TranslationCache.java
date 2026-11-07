@@ -54,9 +54,25 @@ public final class TranslationCache {
      * chat text, and the text length prefix prevents two different splits from colliding.
      */
     public static String key(String provider, String sourceLang, String targetLang, String text) {
+        return key(provider, sourceLang, targetLang, text, "");
+    }
+
+    /**
+     * Variant for context-aware requests.
+     *
+     * <p>{@code contextFingerprint} must capture everything besides the text that can change the
+     * model's answer. Without it a line translated in one conversation would be served from cache
+     * in a completely different one, which is exactly the bug that makes context features look
+     * "randomly wrong". The fingerprint is length-prefixed like the text so it cannot be confused
+     * with adjacent fields.
+     */
+    public static String key(String provider, String sourceLang, String targetLang, String text,
+                             String contextFingerprint) {
         String body = text == null ? "" : text;
+        String context = contextFingerprint == null ? "" : contextFingerprint;
         return provider + SEPARATOR + sourceLang + SEPARATOR + targetLang + SEPARATOR
-                + body.length() + SEPARATOR + body;
+                + body.length() + SEPARATOR + body + SEPARATOR
+                + context.length() + SEPARATOR + context;
     }
 
     /** @return the cached translation, or {@code null} when absent */

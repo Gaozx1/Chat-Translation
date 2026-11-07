@@ -120,6 +120,24 @@ public class ModMenuIntegration implements ModMenuApi {
                 .setSaveConsumer(editing::setAiModelId)
                 .build());
 
+        advanced.addEntry(entries.startBooleanToggle(Component.translatable("chattranslation.config.context_aware_translation"), editing.isContextAwareTranslation())
+                .setDefaultValue(false)
+                .setTooltip(Component.translatable("chattranslation.config.context_aware_translation.tooltip"))
+                .setSaveConsumer(editing::setContextAwareTranslation)
+                .build());
+
+        advanced.addEntry(entries.startIntSlider(Component.translatable("chattranslation.config.context_line_count"), editing.getContextLineCount(), 0, 8)
+                .setDefaultValue(6)
+                .setTooltip(Component.translatable("chattranslation.config.context_line_count.tooltip"))
+                .setSaveConsumer(editing::setContextLineCount)
+                .build());
+
+        advanced.addEntry(entries.startIntSlider(Component.translatable("chattranslation.config.ai_timeout_seconds"), editing.getAiTimeoutSeconds(), 10, 180)
+                .setDefaultValue(45)
+                .setTooltip(Component.translatable("chattranslation.config.ai_timeout_seconds.tooltip"))
+                .setSaveConsumer(editing::setAiTimeoutSeconds)
+                .build());
+
         advanced.addEntry(entries.startTextDescription(Component.translatable("chattranslation.config.notice"))
                 .build());
 

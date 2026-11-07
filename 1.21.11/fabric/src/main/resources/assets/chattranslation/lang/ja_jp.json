@@ -28,5 +28,11 @@
   "chattranslation.config.translate_all_messages": "Translate All Messages",
   "chattranslation.config.translate_all_messages.tooltip": "Translate all chat and system messages, not just player chat.",
   "chattranslation.config.notice": "Saving reloads the selected translation provider immediately. Insecure SSL should only be enabled temporarily for troubleshooting.",
-  "chattranslation.config.free_notice": "The built-in free endpoint uses deepseek-v4.1-flash through api.mcapple.top. Its key is embedded and encrypted in the mod; the public quota is shared, so expect slower replies and occasional failures."
+  "chattranslation.config.free_notice": "The built-in free endpoint uses deepseek-v4.1-flash through api.mcapple.top. Its key is embedded and encrypted in the mod; the public quota is shared, so expect slower replies and occasional failures.",
+  "chattranslation.config.context_aware_translation": "文脈を考慮した翻訳",
+  "chattranslation.config.context_aware_translation.tooltip": "最近のチャット数行を AI に渡し、代名詞・スラング・省略された返答を正しく解釈させます。既定はオフ：過去のチャットが外部サービスに送信されます。",
+  "chattranslation.config.context_line_count": "文脈行数",
+  "chattranslation.config.context_line_count.tooltip": "添付する直近の行数。多いほど解釈は正確になりますが、毎回のリクエストが遅くなります。",
+  "chattranslation.config.ai_timeout_seconds": "AI リクエストのタイムアウト",
+  "chattranslation.config.ai_timeout_seconds.tooltip": "リクエストごとの制限時間（秒）。公開エンドポイントは数十秒かかることがあり、タイムアウトする場合は増やしてください。"
 }

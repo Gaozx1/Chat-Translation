@@ -4,7 +4,7 @@
   "chattranslation.config.category.free_services": "Free Services",
   "chattranslation.config.category.advanced": "Advanced",
   "chattranslation.config.target_language": "Target Language",
-  "chattranslation.config.target_language.tooltip": "Language code for translation (e.g. zh-CN, en, ja, ko). Use 'auto' to follow your Minecraft language setting.",
+  "chattranslation.config.target_language.tooltip": "Language code for translation (e.g. zh-CN, en, ja, ko). Use \u0027auto\u0027 to follow your Minecraft language setting.",
   "chattranslation.config.translate_outgoing_messages": "Translate Sent Messages",
   "chattranslation.config.translate_outgoing_messages.tooltip": "Translate ordinary chat messages before sending. Commands are never translated.",
   "chattranslation.config.outgoing_target_language": "Sent Message Target Language",
@@ -23,10 +23,16 @@
   "chattranslation.config.show_original": "Show Original",
   "chattranslation.config.show_original.tooltip": "Keep showing original message alongside translation.",
   "chattranslation.config.translation_format": "Translation Format",
-  "chattranslation.config.translation_format.tooltip": "Format: {message}=translated, {original}=original. Use & for color codes.",
+  "chattranslation.config.translation_format.tooltip": "Format: {message}\u003dtranslated, {original}\u003doriginal. Use \u0026 for color codes.",
   "chattranslation.config.single_line_display": "Single Line Display",
   "chattranslation.config.translate_all_messages": "Translate All Messages",
   "chattranslation.config.translate_all_messages.tooltip": "Translate all chat and system messages, not just player chat.",
   "chattranslation.config.notice": "Saving reloads the selected translation provider immediately. Insecure SSL should only be enabled temporarily for troubleshooting.",
-  "chattranslation.config.free_notice": "The built-in free endpoint uses deepseek-v4.1-flash through api.mcapple.top. Its key is embedded and encrypted in the mod; the public quota is shared, so expect slower replies and occasional failures."
+  "chattranslation.config.free_notice": "The built-in free endpoint uses deepseek-v4.1-flash through api.mcapple.top. Its key is embedded and encrypted in the mod; the public quota is shared, so expect slower replies and occasional failures.",
+  "chattranslation.config.context_aware_translation": "Context-Aware Translation",
+  "chattranslation.config.context_aware_translation.tooltip": "Send a few recent chat lines to the AI so it can resolve pronouns, slang and short replies. Off by default: enabling this sends previous chat to a third-party provider.",
+  "chattranslation.config.context_line_count": "Context Line Count",
+  "chattranslation.config.context_line_count.tooltip": "How many recent lines to attach. More lines improve disambiguation but slow down every request.",
+  "chattranslation.config.ai_timeout_seconds": "AI Request Timeout",
+  "chattranslation.config.ai_timeout_seconds.tooltip": "Per-request deadline in seconds. Public endpoints can take tens of seconds; raise this if translations keep timing out."
 }

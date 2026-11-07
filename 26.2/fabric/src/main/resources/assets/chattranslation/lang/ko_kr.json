@@ -4,7 +4,7 @@
   "chattranslation.config.category.free_services": "Free Services",
   "chattranslation.config.category.advanced": "Advanced",
   "chattranslation.config.target_language": "Target Language",
-  "chattranslation.config.target_language.tooltip": "Language code for translation. Use 'auto' to follow your Minecraft language setting.",
+  "chattranslation.config.target_language.tooltip": "Language code for translation. Use \u0027auto\u0027 to follow your Minecraft language setting.",
   "chattranslation.config.translate_outgoing_messages": "보내는 메시지 번역",
   "chattranslation.config.translate_outgoing_messages.tooltip": "일반 채팅을 보내기 전에 번역합니다. 명령어는 번역하지 않습니다.",
   "chattranslation.config.outgoing_target_language": "보내는 메시지의 대상 언어",
@@ -22,9 +22,17 @@
   "chattranslation.config.show_original": "Show Original",
   "chattranslation.config.show_original.tooltip": "Keep showing original message alongside translation.",
   "chattranslation.config.translation_format": "Translation Format",
-  "chattranslation.config.translation_format.tooltip": "Format: {message}=translated, {original}=original. Use & for color codes.",
+  "chattranslation.config.translation_format.tooltip": "Format: {message}\u003dtranslated, {original}\u003doriginal. Use \u0026 for color codes.",
   "chattranslation.config.single_line_display": "Single Line Display",
   "chattranslation.config.translate_all_messages": "Translate All Messages",
   "chattranslation.config.translate_all_messages.tooltip": "Translate all chat and system messages, not just player chat.",
-  "chattranslation.config.notice": "Saving reloads the selected translation provider immediately. Insecure SSL should only be enabled temporarily for troubleshooting."
+  "chattranslation.config.notice": "Saving reloads the selected translation provider immediately. Insecure SSL should only be enabled temporarily for troubleshooting.",
+  "chattranslation.config.context_aware_translation": "문맥 인식 번역",
+  "chattranslation.config.context_aware_translation.tooltip": "최근 채팅 몇 줄을 AI에 함께 보내 대명사, 은어, 짧은 대답을 정확히 해석합니다. 기본값은 꾸짐: 이전 채팅이 외부 서비스로 전송됩니다.",
+  "chattranslation.config.context_line_count": "문맥 줄 수",
+  "chattranslation.config.context_line_count.tooltip": "함께 보낼 최근 줄 수입니다. 많을수록 해석은 정확해지지만 매 요청이 느려집니다.",
+  "chattranslation.config.ai_timeout_seconds": "AI 요청 시간 제한",
+  "chattranslation.config.ai_timeout_seconds.tooltip": "요청당 제한 시간(초). 공개 엔드포인트는 수십 초가 걸릴 수 있으니 시간 초과 시 늘리십시오.",
+  "chattranslation.config.ai_api_key.tooltip": "Only needed for the ai service. The built-in ai_free service uses an embedded key, so this can stay empty.",
+  "chattranslation.config.free_notice": "The built-in free endpoint uses deepseek-v4.1-flash through api.mcapple.top. Its key is embedded and encrypted in the mod; the public quota is shared, so expect slower replies and occasional failures."
 }

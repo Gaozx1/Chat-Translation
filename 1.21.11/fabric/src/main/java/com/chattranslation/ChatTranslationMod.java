@@ -2,6 +2,7 @@ package com.chattranslation;
 
 import com.chattranslation.config.ModConfig;
 import com.chattranslation.translation.AiTranslationProvider;
+import com.chattranslation.translation.ChatContextBuffer;
 import com.chattranslation.translation.AnthropicTranslationProvider;
 import com.chattranslation.translation.BingFreeTranslationProvider;
 import com.chattranslation.translation.GeminiTranslationProvider;
@@ -12,6 +13,7 @@ import com.chattranslation.translation.MyMemoryTranslationProvider;
 import com.chattranslation.translation.SecretVault;
 import com.chattranslation.translation.TranslationCache;
 import com.chattranslation.translation.TranslationProvider;
+import com.chattranslation.translation.TranslationQuality;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientSendMessageEvents;
@@ -402,15 +404,15 @@ public class ChatTranslationMod implements ClientModInitializer {
         TranslationProvider provider = translationProvider;
         long sequence = nextTranslationSequence.getAndIncrement();
 
-        // Serve repeats without touching the network. The sequence is taken first so cache hits
-        // obey the same display ordering as real translations.
-        String cacheKey = TranslationCache.key(provider.getName(), "auto", targetLang,
-                protectedMessage.textForTranslation());
-        String cached = TranslationCache.shared().get(cacheKey);
+        // Cache peek before taking a concurrency slot: a hit costs nothing and must never wait
+        // behind slow network requests. The key is built by the provider, the only party that
+        // knows the full identity (model id, context fingerprint, ...).
+        List<String> requestContext = contextForRequest();
+        String cached = provider.peekCached(protectedMessage.textForTranslation(), "auto", targetLang, requestContext);
         if (cached != null) {
             translatingMessages.remove(messageKey);
             offerOrderedResult(sequence, new CompletedTranslation(
-                    message, protectedMessage, originalText, cached, null, provider, showOriginalOnFailure));
+                    message, protectedMessage, originalText, cached, null, provider, showOriginalOnFailure, targetLang));
             return true;
         }
 
@@ -429,7 +431,8 @@ public class ChatTranslationMod implements ClientModInitializer {
         // never on a failed acquisition, so the pool cannot drift upwards.
         CompletableFuture.runAsync(translationSlots::acquireUninterruptibly, TRANSLATION_EXECUTOR)
                 .thenCompose(ignored -> translateQueued(
-                                provider, message, protectedMessage, originalText, targetLang, showOriginalOnFailure)
+                                provider, message, protectedMessage, originalText, targetLang,
+                                showOriginalOnFailure, requestContext)
                         .whenComplete((ignoredResult, ignoredError) -> translationSlots.release()))
                 .whenComplete((result, throwable) -> {
                     translatingMessages.remove(messageKey);
@@ -462,29 +465,44 @@ public class ChatTranslationMod implements ClientModInitializer {
 
     private CompletableFuture<CompletedTranslation> translateQueued(TranslationProvider provider, Text originalMessage,
                                                                     ProtectedMessage protectedMessage, String originalText,
-                                                                    String targetLang, boolean showOriginalOnFailure) {
+                                                                    String targetLang, boolean showOriginalOnFailure,
+                                                                    List<String> requestContext) {
         try {
-            return provider.translate(protectedMessage.textForTranslation(), "auto", targetLang)
+            return provider.translateWithContext(protectedMessage.textForTranslation(), "auto", targetLang, requestContext)
                     .handle((translatedText, throwable) ->
                             new CompletedTranslation(originalMessage, protectedMessage, originalText,
-                                    translatedText, throwable, provider, showOriginalOnFailure));
+                                    translatedText, throwable, provider, showOriginalOnFailure, targetLang));
         } catch (Throwable throwable) {
             return CompletableFuture.completedFuture(new CompletedTranslation(
                     originalMessage, protectedMessage, originalText, null,
-                    throwable, provider, showOriginalOnFailure));
+                    throwable, provider, showOriginalOnFailure, targetLang));
         }
+    }
+
+    /**
+     * Snapshot of recent chat for the AI provider.
+     *
+     * <p>Taken on the translation worker, not the chat thread, and only for providers that can use
+     * it; the default {@code translateWithContext} ignores the list entirely.
+     */
+    private static List<String> contextForRequest() {
+        if (config == null || !config.isContextAwareTranslation()) {
+            return List.of();
+        }
+        return ChatContextBuffer.shared().snapshot(config.getContextLineCount());
     }
 
     /** A finished translation waiting to be applied on the render thread. */
     private record CompletedTranslation(Text originalMessage, ProtectedMessage protectedMessage,
                                         String originalText, String translatedText, Throwable throwable,
-                                        TranslationProvider provider, boolean showOriginalOnFailure)
+                                        TranslationProvider provider, boolean showOriginalOnFailure,
+                                        String targetLang)
             implements Runnable {
 
         @Override
         public void run() {
             handleTranslationResultStatic(originalMessage, protectedMessage, originalText, translatedText,
-                    throwable, provider, showOriginalOnFailure);
+                    throwable, provider, showOriginalOnFailure, targetLang);
         }
     }
 
@@ -616,45 +634,70 @@ public class ChatTranslationMod implements ClientModInitializer {
 
     private void handleTranslationResult(Text originalMessage, ProtectedMessage protectedMessage,
                                          String originalText, String translatedText, Throwable throwable,
-                                         TranslationProvider provider, boolean showOriginalOnFailure) {
+                                         TranslationProvider provider, boolean showOriginalOnFailure,
+                                         String targetLang) {
         handleTranslationResultStatic(originalMessage, protectedMessage, originalText, translatedText,
-                throwable, provider, showOriginalOnFailure);
+                throwable, provider, showOriginalOnFailure, targetLang);
     }
 
     private static void handleTranslationResultStatic(Text originalMessage, ProtectedMessage protectedMessage,
                                                       String originalText, String translatedText, Throwable throwable,
-                                                      TranslationProvider provider, boolean showOriginalOnFailure) {
+                                                      TranslationProvider provider, boolean showOriginalOnFailure,
+                                                      String targetLang) {
         if (throwable != null) {
             LOGGER.warn("[ChatTranslation] {} translation failed: {}", provider.getName(), throwable.getMessage());
-            showOriginalAfterFailure(originalMessage, showOriginalOnFailure);
+            showOriginalAfterFailure(originalMessage, showOriginalOnFailure, protectedMessage.speaker());
             return;
         }
         if (isProviderError(translatedText)) {
             LOGGER.warn("[ChatTranslation] {} returned an error: {}", provider.getName(), translatedText);
-            showOriginalAfterFailure(originalMessage, showOriginalOnFailure);
+            showOriginalAfterFailure(originalMessage, showOriginalOnFailure, protectedMessage.speaker());
             return;
         }
         if (!containsAllPlaceholders(translatedText, protectedMessage.tokens())) {
             LOGGER.warn("[ChatTranslation] {} changed protected message tokens; keeping the original message",
                     provider.getName());
-            showOriginalAfterFailure(originalMessage, showOriginalOnFailure);
+            showOriginalAfterFailure(originalMessage, showOriginalOnFailure, protectedMessage.speaker());
             return;
         }
 
         MutableText restoredTranslation = restoreProtectedMessage(protectedMessage, translatedText);
         if (restoredTranslation.getString().equals(originalText)) {
             LOGGER.debug("[ChatTranslation] provider returned the original text");
-            showOriginalAfterFailure(originalMessage, showOriginalOnFailure);
+            showOriginalAfterFailure(originalMessage, showOriginalOnFailure, protectedMessage.speaker());
             return;
         }
 
         Text translationMessage = formatTranslationMessage(originalText, restoredTranslation);
+        if (!TranslationQuality.looksUsable(translationMessage.getString(), originalText, targetLang, true)) {
+            LOGGER.warn("[ChatTranslation] {} returned text that does not look like a translation; keeping original",
+                    provider.getName());
+            showOriginalAfterFailure(originalMessage, showOriginalOnFailure, protectedMessage.speaker());
+            return;
+        }
         showMessage(translationMessage);
+        rememberContext(protectedMessage.speaker(), originalText);
     }
 
-    private static void showOriginalAfterFailure(Text originalMessage, boolean showOriginalOnFailure) {
+    /**
+     * Adds a line to the AI context buffer only once it has genuinely been shown.
+     *
+     * <p>Recording failures would teach the model from lines the user never saw, and recording at
+     * receive time would let still-queued messages leak into earlier translations. Because this is
+     * called from the render thread after {@code showMessage}, both problems disappear.
+     */
+    private static void rememberContext(String speaker, String originalText) {
+        if (config != null && config.isContextAwareTranslation()) {
+            ChatContextBuffer.shared().record(speaker, originalText);
+        }
+    }
+
+    private static void showOriginalAfterFailure(Text originalMessage, boolean showOriginalOnFailure,
+                                                 String speaker) {
         if (showOriginalOnFailure) {
             showMessage(originalMessage);
+            // The original text was displayed, so it is legitimate conversational context.
+            rememberContext(speaker, originalMessage.getString());
         }
     }
 
@@ -762,7 +805,8 @@ public class ChatTranslationMod implements ClientModInitializer {
         } else {
             builder.append(text.substring(lastEnd));
         }
-        return new ProtectedMessage(builder.toString(), selected, findPreferredTextStyle(message));
+        return new ProtectedMessage(builder.toString(), selected, findPreferredTextStyle(message),
+                sender == null ? null : sender.name());
     }
 
     private void collectStyledTokens(Text component, List<ProtectedToken> tokens) {
@@ -1031,7 +1075,8 @@ public class ChatTranslationMod implements ClientModInitializer {
         FORMAT_CODE
     }
 
-    private record ProtectedMessage(String textForTranslation, List<ProtectedToken> tokens, Style textStyle) {
+    private record ProtectedMessage(String textForTranslation, List<ProtectedToken> tokens, Style textStyle,
+                                    String speaker) {
     }
 
     private record PlaceholderHit(int start, int end, ProtectedToken token) {
